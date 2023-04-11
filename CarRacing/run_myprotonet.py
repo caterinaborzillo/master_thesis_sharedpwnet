@@ -16,18 +16,31 @@ from torch.distributions import Beta
 from tqdm import tqdm
 from sklearn.neighbors import KNeighborsRegressor
 
-NUM_ITERATIONS = 6
+NUM_ITERATIONS = 5
 CONFIG_FILE = "config.toml"
 MODEL_DIR = 'weights/myprotonet.pth'
 BATCH_SIZE = 32
 LATENT_SIZE = 256
 NUM_EPOCHS = 50
 PROTOTYPE_SIZE = 50
-NUM_PROTOTYPES = 5
+NUM_PROTOTYPES = 7
 NUM_CLASSES = 3
 DEVICE = 'cuda'
 SIMULATION_EPOCHS = 30
 NUM_SLOTS_PER_CLASS = 2
+clst_weight = 0.08 # before: 0.08
+sep_weight = -0.008 # before: 0.008
+l1_weight = 1e-4
+
+def print_info():
+    print("Training INFO:")
+    print(f"BATCH SIZE: {BATCH_SIZE}, NUM PROTOTYPES: {NUM_PROTOTYPES}, NUM SLOTS PER CLASS: {NUM_SLOTS_PER_CLASS}")
+    print(f"NUM ITERATIONS: {NUM_ITERATIONS}, NUM TRAINING EPOCHS: {NUM_EPOCHS}, SIMULATION EPOCHS: {SIMULATION_EPOCHS}")
+    print(f"Loss INFO --> clst_weight: {clst_weight}, sep_weight: {sep_weight}, l1_weight: {l1_weight}")
+    print("------------------------------------------------------------------------------------------------------------------------------")
+    return
+
+print_info()
 
 class MyProtoNet(nn.Module):
     def __init__(self):
@@ -38,7 +51,7 @@ class MyProtoNet(nn.Module):
             nn.ReLU(),
             nn.Linear(PROTOTYPE_SIZE, PROTOTYPE_SIZE),
         )
-        self.prototypes = nn.Parameter(torch.rand((NUM_PROTOTYPES, LATENT_SIZE), dtype=torch.float32), requires_grad=True) # in pw-net: randn
+        self.prototypes = nn.Parameter(torch.randn((NUM_PROTOTYPES, LATENT_SIZE), dtype=torch.float32), requires_grad=True) # in pw-net: randn
         self.proto_presence = torch.zeros(NUM_CLASSES, NUM_PROTOTYPES, NUM_SLOTS_PER_CLASS)
         self.proto_presence = nn.Parameter(self.proto_presence, requires_grad=True)
         nn.init.xavier_normal_(self.proto_presence, gain=1.0)
@@ -47,16 +60,16 @@ class MyProtoNet(nn.Module):
         for i in range(NUM_SLOTS_PER_CLASS * NUM_CLASSES):
             self.prototype_class_identity[i, i // NUM_SLOTS_PER_CLASS] = 1
             
-            self.class_identity_layer = nn.Linear(NUM_SLOTS_PER_CLASS * NUM_CLASSES, NUM_CLASSES, bias=False) 
-            positive_one_weights_locations = torch.t(self.prototype_class_identity) # transpose
-            negative_one_weights_locations = 1 - positive_one_weights_locations
+        self.class_identity_layer = nn.Linear(NUM_SLOTS_PER_CLASS * NUM_CLASSES, NUM_CLASSES, bias=False) 
+        positive_one_weights_locations = torch.t(self.prototype_class_identity) # transpose
+        negative_one_weights_locations = 1 - positive_one_weights_locations
 
-            correct_class_connection = 1
-            incorrect_class_connection = 0 # -0.5
-            # to weight in the proper way the last linear layer
-            self.class_identity_layer.weight.data.copy_(correct_class_connection * positive_one_weights_locations + incorrect_class_connection * negative_one_weights_locations)
+        correct_class_connection = 1
+        incorrect_class_connection = 0 # -0.5
+        # to weight in the proper way the last linear layer
+        self.class_identity_layer.weight.data.copy_(correct_class_connection * positive_one_weights_locations + incorrect_class_connection * negative_one_weights_locations)
         
-        self.final_linear = nn.Linear(NUM_CLASSES, NUM_CLASSES)
+        #self.final_linear = nn.Linear(NUM_CLASSES, NUM_CLASSES) # to learn the final layer W (+1, -1) for steering for example
         self.tanh = nn.Tanh()
         self.relu = nn.ReLU()
         self.epsilon = 1e-5
@@ -86,7 +99,6 @@ class MyProtoNet(nn.Module):
         '''
         x (raw input) size: (batch, 256)
         '''
-        # batch, 256, 256
         if gumbel_scalar == 0:
             proto_presence = torch.softmax(self.proto_presence, dim=1)
         else:
@@ -99,10 +111,10 @@ class MyProtoNet(nn.Module):
 
         out1 = self.class_identity_layer(mixed_similarity.flatten(start_dim=1))
         
-        out2 = self.final_linear(out1)
+        #out2 = self.final_linear(out1)
         
-        out3 = self.output_activations(out2)
-        return out3, x, similarity, proto_presence
+        out2 = self.output_activations(out1)
+        return out2, x, similarity, proto_presence
 
 def evaluate_loader(model, gumbel_scalar, loader, loss):
     model.eval()
@@ -114,10 +126,6 @@ def evaluate_loader(model, gumbel_scalar, loader, loss):
             imgs, labels = imgs.to(DEVICE), labels.to(DEVICE)
             # size of imgs: [batch, 256], size of labels: [batch, 3]
             logits, _, _, _ = model(imgs, gumbel_scalar)
-            if len(logits)== 0:
-                print(logits.size())
-            if len(labels) == 0:
-                print(labels.size())
             current_loss = loss(logits, labels)
             total_error += current_loss.item()
             total += len(imgs)
@@ -126,7 +134,7 @@ def evaluate_loader(model, gumbel_scalar, loader, loss):
 
 start_val = 1.3
 end_val = 10 **3 
-epoch_interval = 10
+epoch_interval = 30 # before: 10
 alpha2 = (end_val / start_val) ** 2 / epoch_interval
 
 def lambda1(epoch): return start_val * np.sqrt((alpha2 * (epoch))) if epoch < epoch_interval else end_val
@@ -147,36 +155,6 @@ def dist_loss(model, similarity, proto_presence, top_k, sep=False):
     inverted_distances, _ = torch.max((max_dist - similarity) * binarized_top_k, dim=1)  # [b]
     cost = torch.mean(max_dist - inverted_distances)
     return cost
-'''
-def clust_loss(x, y, model, criterion):
-    """
-    Forces each prototype to be close to training data
-    """
-    
-    ps = model.prototypes  # take prototypes in new feature space
-    model = model.eval()
-    x = model.projection_network(x)  # transform into new feature space
-    b_size = x.shape[0]
-    for idx, p in enumerate(ps):
-        target = p.repeat(b_size, 1)
-        if idx == 0:
-            loss = criterion(x, target) 
-        else:
-            loss += criterion(x, target)
-    model = model.train()  
-    return loss
-
-def sep_loss(x, y, model, criterion):
-    """
-    Force each prototype to be far from each other
-    """
-    
-    p = model.prototypes  # take prototypes in new feature space
-    model = model.eval()
-    x = model.projection_network(x)  # transform into new feature space
-    loss = torch.cdist(p, p).sum() / ((NUM_PROTOTYPES**2 - NUM_PROTOTYPES) / 2)
-    return -loss 
-'''
 
 def maximum(a, b, c): 
   
@@ -238,24 +216,14 @@ for _ in range(NUM_ITERATIONS):
     best_acc = 0.
     model.train()
     
-    #print("Trainable: \n")
-    #for name, param in model.named_parameters():
-        #if param.requires_grad:
-            #print(name, param.data)
-            #print("\n")
-        
-    loss1_weight = 1.0
-    clst_weight = 0.8 # before: 0.08
-    sep_weight = 0.08 # before: 0.008
-    
-    for epoch in range(NUM_EPOCHS):# NUM_EPOCHS
+    for epoch in range(NUM_EPOCHS):
         model.eval()
         gumbel_scalar = lambda1(epoch)
         current_acc = evaluate_loader(model, gumbel_scalar, train_loader, mse_loss)
         model.train()
         
         if current_acc > best_acc:
-            torch.save(model.state_dict(), MODEL_DIR)
+            torch.save(model.state_dict(), MODEL_DIR) # saves in weights/myprotonet.pth all the model parameters (layer by layer)
             best_acc = current_acc
         
         for instances, labels in train_loader:
@@ -264,10 +232,10 @@ for _ in range(NUM_ITERATIONS):
             instances, labels = instances.to(DEVICE), labels.to(DEVICE)
             logits, _, similarity, proto_presence = model(instances, gumbel_scalar)
             
-            loss1 = mse_loss(logits, labels) * loss1_weight
-            # orthogonal loss1_weight
+            loss1 = mse_loss(logits, labels) 
+            # orthogonal loss --> for slots orthogonality: in this way successive slots of a class are assigned to different prototypes
             orthogonal_loss = torch.Tensor([0]).cuda()
-            for c in range(0, model.proto_presence.shape[0], 1000):
+            for c in range(0, model.proto_presence.shape[0], 1000): # model.proto_presence.shape[0]: NUM_CLASSES
                 orthogonal_loss_p = cosine_similarity(model.proto_presence.unsqueeze(2)[c:c+1000],
                                     model.proto_presence.unsqueeze(-1)[c:c+1000], dim=1).sum()
                 orthogonal_loss += orthogonal_loss_p
@@ -285,7 +253,7 @@ for _ in range(NUM_ITERATIONS):
                 else:
                     labels_pp.append(2)
             
-            proto_presence = proto_presence[labels_pp] # labels_p deve essere un vettore (batch size, classe) classe = 0,1,2
+            proto_presence = proto_presence[labels_pp] # (?) labels_pp deve essere un vettore (batch size, classe) classe = 0,1,2
             inverted_proto_presence = 1 - proto_presence
             labels.to(DEVICE)
             
@@ -301,7 +269,7 @@ for _ in range(NUM_ITERATIONS):
             l1 = (model.class_identity_layer.weight * l1_mask).norm(p=1)
 # We use the following weighting schema for loss function: L entropy = 1.0, L clst = 0.8, L sep = −0.08, L orth = 1.0, and L l 1 = 10 −4 . Finally, 
 # we normalize L orth , dividing it by the number of classes multiplied by the number of slots per class. (page 20)
-            loss = loss1 + clst_loss_val * clst_weight + sep_loss_val * sep_weight + 1e-4 * l1 + orthogonal_loss 
+            loss = loss1 + clst_loss_val * clst_weight + sep_loss_val * sep_weight + l1 * l1_weight + orthogonal_loss 
             
             #loss2 = clust_loss(instances, labels, model, mse_loss) * lambda22
             #loss3 = sep_loss(instances, labels, model, mse_loss) * lambda33
@@ -313,7 +281,7 @@ for _ in range(NUM_ITERATIONS):
 
     # Project Prototypes
     model.eval()
-    model.load_state_dict(torch.load(MODEL_DIR))
+    model.load_state_dict(torch.load(MODEL_DIR)) # load model parameters previously saved
     print("Accuracy Before Projection:", evaluate_loader(model, gumbel_scalar, train_loader, mse_loss))
     trans_x = list()
     model.eval()
@@ -336,30 +304,24 @@ for _ in range(NUM_ITERATIONS):
         knn = KNeighborsRegressor(algorithm='brute')
         knn.fit(trans_x, list(range(len(trans_x)))) # lista da 0 a len(trans_x) - n of training data
         dist, nn_idx = knn.kneighbors(X=trained_prototype, n_neighbors=1, return_distance=True)
-        print(f"Trained prototype p{i}: \n")
-        print(f"distance: {dist.item()}, index of nearest point: {nn_idx.item()} \n")
+        print(f"Trained prototype p{i}:")
+        print(f"distance: {dist.item()}, index of nearest point: {nn_idx.item()}")
         nn_x = X_train[nn_idx.item()]    
         nn_xs.append(nn_x.tolist())
     trained_prototypes = model.prototypes.clone().detach()
-    # praticamente vado a sostituire i prototipi allenati durante il training con gli stati (dopo f_enc/projection_network) che sono più vicini ai prototipi
+    # praticamente vado a sostituire i prototipi allenati durante il training con gli stati (dopo la projection_network) che sono più vicini ai prototipi
     # è come se facessi una proiezione dei prototipi (allenati da zero) sugli stati (veri stati nel training set)
     nn_xs_tensor = torch.tensor(nn_xs, dtype=torch.float32) # (num_prot, 50)
     model.prototypes = torch.nn.Parameter(nn_xs_tensor.to(DEVICE))
-    torch.save(model.state_dict(), MODEL_DIR)
+    torch.save(model.state_dict(), MODEL_DIR) # saves new prototypes (made with training states x)
     print("Accuracy After Projection:", evaluate_loader(model, gumbel_scalar, train_loader, mse_loss))
     
     states, actions, rewards, log_probs, values, dones, X_train = [], [], [], [], [], [], []
     self_state = ppo._to_tensor(env.reset())
 
-    #import gc
-    #for obj in gc.get_objects():
-    #    try:
-    #        if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
-    #            print(type(obj), obj.size())
-    #    except:
-    #        pass
 
-    # Wapper model with learned weights
+
+    # Wrapper model with learned weights
     model.eval()
     reward_arr = []
     all_errors = list()
@@ -371,15 +333,18 @@ for _ in range(NUM_ITERATIONS):
 
         for t in range(10000):
             # Get black box action
+            # value network: estimates the value of being in the state "state"
             value, alpha, beta, latent_x = ppo.net(state)
             value, alpha, beta = value.squeeze(0), alpha.squeeze(0), beta.squeeze(0)
+            # policy network: uses estimates of the value function to select actions that are more likely to lead higher rewards
             policy = Beta(alpha, beta)
             input_action = policy.mean.detach()
+            # perform the action "input_action" found by the policy network
             _, _, _, _, bb_action = ppo.env.step(input_action.cpu().numpy())
-            # bb_action size [3]
+            # bb_action size [3] --> è l'azione della stessa forma dell'output del mio modello (per poterli confrontare)
             action, _, _, _ = model(latent_x.to(DEVICE), gumbel_scalar)
             # action size [1,3]
-            all_errors.append(  mse_loss(bb_action.to(DEVICE), action[0]).detach().item()  )
+            all_errors.append(mse_loss(bb_action.to(DEVICE), action[0]).detach().item())
 
             state, reward, done, _, _ = ppo.env.step(action[0].detach().cpu().numpy(), real_action=True)
             state = ppo._to_tensor(state)
