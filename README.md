@@ -14,7 +14,6 @@ pip install gym-notices==0.0.7
 pip install scikit-learn
 
 pip install tensorboard
-
 ```
 Inside the CarRacing directory of the repo, simply run:
 
