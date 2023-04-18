@@ -5,6 +5,8 @@ import numpy as np
 import pickle
 import toml
 
+from torch.utils.tensorboard import SummaryWriter
+
 from copy import deepcopy
 from torch.utils.data import TensorDataset, DataLoader
 from torch.nn.functional import gumbel_softmax, cosine_similarity
@@ -26,7 +28,7 @@ PROTOTYPE_SIZE = 50
 NUM_PROTOTYPES = 7
 NUM_CLASSES = 3
 DEVICE = 'cuda'
-SIMULATION_EPOCHS = 30
+SIMULATION_EPOCHS = 10
 NUM_SLOTS_PER_CLASS = 2
 clst_weight = 0.08 # before: 0.08
 sep_weight = -0.008 # before: 0.008
@@ -69,7 +71,6 @@ class MyProtoNet(nn.Module):
         # to weight in the proper way the last linear layer
         self.class_identity_layer.weight.data.copy_(correct_class_connection * positive_one_weights_locations + incorrect_class_connection * negative_one_weights_locations)
         
-        #self.final_linear = nn.Linear(NUM_CLASSES, NUM_CLASSES) # to learn the final layer W (+1, -1) for steering for example
         self.tanh = nn.Tanh()
         self.relu = nn.ReLU()
         self.epsilon = 1e-5
@@ -171,7 +172,9 @@ def maximum(a, b, c):
 data_rewards = list()
 data_errors = list()
 
-for _ in range(NUM_ITERATIONS):
+for iter in range(NUM_ITERATIONS):
+    
+    writer = SummaryWriter(f"runs/prova_{iter}")
     
     cfg = load_config()
     env = CarRacing(frame_skip=0, frame_stack=4,)
@@ -213,18 +216,86 @@ for _ in range(NUM_ITERATIONS):
     mse_loss = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=1e-8)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
-    best_acc = 0.
+    best_error = 0.
     model.train()
     
+    '''
+    prototypes 
+    proto_presence 
+    projection_network.0.weight 
+    projection_network.0.bias 
+    projection_network.3.weight 
+    projection_network.3.bias 
+    class_identity_layer.weight 
+
+    '''
+    first_time=True
+    running_loss = running_loss_mse = running_loss_clst = running_loss_sep = running_loss_l1 =  running_loss_ortho = 0.
     for epoch in range(NUM_EPOCHS):
         model.eval()
         gumbel_scalar = lambda1(epoch)
-        current_acc = evaluate_loader(model, gumbel_scalar, train_loader, mse_loss)
+        train_error = evaluate_loader(model, gumbel_scalar, train_loader, mse_loss)
         model.train()
-        
-        if current_acc > best_acc:
+  
+        if train_error < best_error:
             torch.save(model.state_dict(), MODEL_DIR) # saves in weights/myprotonet.pth all the model parameters (layer by layer)
-            best_acc = current_acc
+            best_error = train_error
+        
+        # prototype projection every 2 epochs
+        if epoch >= 10 and epoch % 2 == 0 and epoch < NUM_EPOCHS-5:
+            print("Projecting prototypes...")
+            transformed_x = list()
+            model.eval()
+            with torch.no_grad():
+                for i in range(len(X_train)):
+                    img = X_train[i]
+                    img_tensor = torch.tensor(img, dtype=torch.float32).view(1, -1) # (1, 256)
+                    _, x, _, _ = model(img_tensor.to(DEVICE), gumbel_scalar)
+                    # x è lo stato s dopo la projection network
+                    transformed_x.append(x[0].tolist())
+            transformed_x = np.array(transformed_x)
+            
+            list_projected_prototype = list()
+            nn_human_images = list()
+            for i in range(NUM_PROTOTYPES):
+                # I take the trained prototype p
+                trained_p = model.projection_network(model.prototypes)
+                trained_prototype_clone = trained_p.clone().detach()[i].view(1,-1)
+                trained_prototype = trained_prototype_clone.cpu()
+                # apply knn to find the top 4 x states which are the closest to the 4 prototypes
+                knn = KNeighborsRegressor(algorithm='brute')
+                knn.fit(transformed_x, list(range(len(transformed_x)))) # lista da 0 a len(transformed_x) - n of training data
+                #dist: distance (minimum one) , transf_idx: index of the transformed state closer to the prototype p
+                dist, transf_idx = knn.kneighbors(X=trained_prototype, n_neighbors=1, return_distance=True)
+                #print(f"Trained prototype p{i}:")
+                #print(f"distance: {dist.item()}, index of nearest point: {transf_idx.item()}")
+                projected_prototype = X_train[transf_idx.item()]    
+                list_projected_prototype.append(projected_prototype.tolist())
+            trained_prototypes = model.prototypes.clone().detach()
+            # praticamente vado a sostituire i prototipi allenati durante il training con gli stati (dopo la projection_network) che sono più vicini ai prototipi
+            # è come se facessi una proiezione dei prototipi (allenati da zero) sugli stati (veri stati nel training set)
+            tensor_projected_prototype = torch.tensor(list_projected_prototype, dtype=torch.float32) # (num_prot, 50)
+            model.prototypes = torch.nn.Parameter(tensor_projected_prototype.to(DEVICE))
+            model.train()
+        # freezed prototypes and projection network, training only proto_presence (prototype assignment) + class_identity_layer (last layer)
+        if epoch >= NUM_EPOCHS-5:
+            #print("---Prototypes and proj net: freezed.")
+            for name, param in model.named_parameters():
+                if "prototypes" in name: 
+                    param.requires_grad = False 
+                elif "projection_network" in name:
+                    param.requires_grad = False 
+                #if first_time:
+                    #print(name, " --> ", param.requires_grad)
+                        
+        
+            for name, param in model.named_parameters():
+                if first_time:
+                    if param.requires_grad:
+                        print("--- ", name, "---> training")
+                    else:
+                        print("--- ", name, "---> freezed")
+            first_time=False
         
         for instances, labels in train_loader:
             optimizer.zero_grad()
@@ -234,10 +305,9 @@ for _ in range(NUM_ITERATIONS):
             
             loss1 = mse_loss(logits, labels) 
             # orthogonal loss --> for slots orthogonality: in this way successive slots of a class are assigned to different prototypes
-            orthogonal_loss = torch.Tensor([0]).cuda()
+            orthogonal_loss = torch.Tensor([0]).to(DEVICE)
             for c in range(0, model.proto_presence.shape[0], 1000): # model.proto_presence.shape[0]: NUM_CLASSES
-                orthogonal_loss_p = cosine_similarity(model.proto_presence.unsqueeze(2)[c:c+1000],
-                                    model.proto_presence.unsqueeze(-1)[c:c+1000], dim=1).sum()
+                orthogonal_loss_p = cosine_similarity(model.proto_presence.unsqueeze(2)[c:c+1000],model.proto_presence.unsqueeze(-1)[c:c+1000], dim=1).sum()
                 orthogonal_loss += orthogonal_loss_p
             orthogonal_loss = orthogonal_loss / (NUM_SLOTS_PER_CLASS * NUM_CLASSES) - 1 # page 7 of paper
 
@@ -267,59 +337,35 @@ for _ in range(NUM_ITERATIONS):
             
             l1_mask = 1 - torch.t(model.prototype_class_identity).cuda()
             l1 = (model.class_identity_layer.weight * l1_mask).norm(p=1)
-# We use the following weighting schema for loss function: L entropy = 1.0, L clst = 0.8, L sep = −0.08, L orth = 1.0, and L l 1 = 10 −4 . Finally, 
-# we normalize L orth , dividing it by the number of classes multiplied by the number of slots per class. (page 20)
+            # We use the following weighting schema for loss function: L entropy = 1.0, L clst = 0.8, L sep = −0.08, L orth = 1.0, and L l 1 = 10 −4 . Finally, 
+            # we normalize L orth , dividing it by the number of classes multiplied by the number of slots per class. (page 20)
             loss = loss1 + clst_loss_val * clst_weight + sep_loss_val * sep_weight + l1 * l1_weight + orthogonal_loss 
-            
+            #print(loss1, clst_loss_val * clst_weight, sep_loss_val * sep_weight, l1 * l1_weight , orthogonal_loss )
             #loss2 = clust_loss(instances, labels, model, mse_loss) * lambda22
             #loss3 = sep_loss(instances, labels, model, mse_loss) * lambda33
-  
+            
+            running_loss_mse += loss1.item()
+            running_loss_clst += clst_loss_val.item() * clst_weight
+            running_loss_sep += sep_loss_val.item() * sep_weight
+            running_loss_l1 += l1.item() * l1_weight
+            running_loss_ortho += orthogonal_loss.item() 
+            running_loss += loss.item()
+
             loss.backward()
             optimizer.step()
+    
+        print("Epoch:", epoch, "Loss:", running_loss / len(train_loader), "Train_error:", train_error)
+        writer.add_scalar("Loss_mse/train", running_loss_mse/len(train_loader), epoch)
+        writer.add_scalar("Loss_clst/train", running_loss_clst/len(train_loader), epoch)
+        writer.add_scalar("Loss_sep/train", running_loss_sep/len(train_loader), epoch)
+        writer.add_scalar("Loss_l1/train", running_loss_l1/len(train_loader), epoch)
+        writer.add_scalar("Loss_ortho/train", running_loss_ortho/len(train_loader), epoch)
+        running_loss = running_loss_mse = running_loss_clst = running_loss_sep = running_loss_l1 =  running_loss_ortho = 0.
             
         scheduler.step()
-
-    # Project Prototypes
-    model.eval()
-    model.load_state_dict(torch.load(MODEL_DIR)) # load model parameters previously saved
-    print("Accuracy Before Projection:", evaluate_loader(model, gumbel_scalar, train_loader, mse_loss))
-    trans_x = list()
-    model.eval()
-    with torch.no_grad():
-        for i in tqdm(range(len(X_train))):
-            img = X_train[i]
-            img_tensor = torch.tensor(img, dtype=torch.float32).view(1, -1) # (1, 256)
-            _, x, _, _ = model(img_tensor.to(DEVICE), gumbel_scalar)
-            # x è lo stato s dopo la projection network
-            trans_x.append(x[0].tolist())
-    trans_x = np.array(trans_x)
-
-    nn_xs = list()
-    nn_as = list()
-    nn_human_images = list()
-    for i in range(NUM_PROTOTYPES):
-        trained_p = model.projection_network(model.prototypes)
-        trained_prototype_clone = trained_p.clone().detach()[i].view(1,-1)
-        trained_prototype = trained_prototype_clone.cpu()
-        knn = KNeighborsRegressor(algorithm='brute')
-        knn.fit(trans_x, list(range(len(trans_x)))) # lista da 0 a len(trans_x) - n of training data
-        dist, nn_idx = knn.kneighbors(X=trained_prototype, n_neighbors=1, return_distance=True)
-        print(f"Trained prototype p{i}:")
-        print(f"distance: {dist.item()}, index of nearest point: {nn_idx.item()}")
-        nn_x = X_train[nn_idx.item()]    
-        nn_xs.append(nn_x.tolist())
-    trained_prototypes = model.prototypes.clone().detach()
-    # praticamente vado a sostituire i prototipi allenati durante il training con gli stati (dopo la projection_network) che sono più vicini ai prototipi
-    # è come se facessi una proiezione dei prototipi (allenati da zero) sugli stati (veri stati nel training set)
-    nn_xs_tensor = torch.tensor(nn_xs, dtype=torch.float32) # (num_prot, 50)
-    model.prototypes = torch.nn.Parameter(nn_xs_tensor.to(DEVICE))
-    torch.save(model.state_dict(), MODEL_DIR) # saves new prototypes (made with training states x)
-    print("Accuracy After Projection:", evaluate_loader(model, gumbel_scalar, train_loader, mse_loss))
     
     states, actions, rewards, log_probs, values, dones, X_train = [], [], [], [], [], [], []
     self_state = ppo._to_tensor(env.reset())
-
-
 
     # Wrapper model with learned weights
     model.eval()
@@ -358,6 +404,8 @@ for _ in range(NUM_ITERATIONS):
 
     data_rewards.append(  sum(reward_arr) / SIMULATION_EPOCHS  )
     data_errors.append(  sum(all_errors) / SIMULATION_EPOCHS )
+    print("Data reward: ", sum(reward_arr) / SIMULATION_EPOCHS)
+    print("Data error: ", sum(all_errors) / SIMULATION_EPOCHS )
 
 data_errors = np.array(data_errors)
 data_rewards = np.array(data_rewards)
