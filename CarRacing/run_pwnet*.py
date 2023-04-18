@@ -18,18 +18,18 @@ from tqdm import tqdm
 from time import sleep
 
 
-NUM_ITERATIONS = 2
+NUM_ITERATIONS = 5
 MODEL_DIR = 'weights/pwnet_star.pth'
 CONFIG_FILE = "config.toml"
 NUM_CLASSES = 3
 LATENT_SIZE = 256
 PROTOTYPE_SIZE = 50
 BATCH_SIZE = 32
-NUM_EPOCHS = 20
+NUM_EPOCHS = 100
 DEVICE = 'cuda'
 delay_ms = 0
-NUM_PROTOTYPES = 4
-SIMULATION_EPOCHS = 30
+NUM_PROTOTYPES = 4 # per cambiare questo dato dovrei modificare l'ultimo linear layer (pre-assigned) W'
+SIMULATION_EPOCHS = 10
 
 
 class PPNet(nn.Module):
