@@ -277,16 +277,14 @@ for iter in range(NUM_ITERATIONS):
             tensor_projected_prototype = torch.tensor(list_projected_prototype, dtype=torch.float32) # (num_prot, 50)
             model.prototypes = torch.nn.Parameter(tensor_projected_prototype.to(DEVICE))
             model.train()
+            
         # freezed prototypes and projection network, training only proto_presence (prototype assignment) + class_identity_layer (last layer)
         if epoch >= NUM_EPOCHS-5:
-            #print("---Prototypes and proj net: freezed.")
             for name, param in model.named_parameters():
                 if "prototypes" in name: 
                     param.requires_grad = False 
                 elif "projection_network" in name:
                     param.requires_grad = False 
-                #if first_time:
-                    #print(name, " --> ", param.requires_grad)
                         
         
             for name, param in model.named_parameters():
