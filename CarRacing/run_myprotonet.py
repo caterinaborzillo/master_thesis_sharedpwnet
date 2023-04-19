@@ -18,17 +18,17 @@ from torch.distributions import Beta
 from tqdm import tqdm
 from sklearn.neighbors import KNeighborsRegressor
 
-NUM_ITERATIONS = 2
+NUM_ITERATIONS = 5
 CONFIG_FILE = "config.toml"
 #MODEL_DIR = 'weights/myprotonet.pth'
 BATCH_SIZE = 32
 LATENT_SIZE = 256
-NUM_EPOCHS = 10 # 100
+NUM_EPOCHS = 100 
 PROTOTYPE_SIZE = 50
 #NUM_PROTOTYPES = 7
 NUM_CLASSES = 3
 DEVICE = 'cuda'
-SIMULATION_EPOCHS = 5
+SIMULATION_EPOCHS = 10
 #NUM_SLOTS_PER_CLASS = 2
 clst_weight = 0.08 # before: 0.08
 sep_weight = -0.008 # before: 0.008
