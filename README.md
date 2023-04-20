@@ -31,9 +31,9 @@ python run_pwnet**.py
 ```
 python run_myprotonet.py
 ```
--- Note that when running my prototype net, the results obtained by trying NUM_PROTOTYPES = 4,6,9 and NUM_SLOTS_PER_CLASS = 1,2,3 can be found in the *myprotonet_results.txt* file in the CarRacing directory. The same for the networks pwnet* and pwnet** in which the results are stored in *pwnet*_results.txt* and *pwnet**_results.txt* respectively.
+-- Note that when running my prototype net, the results obtained by trying NUM_PROTOTYPES = 4,6,9 and NUM_SLOTS_PER_CLASS = 1,2,3 can be found in the myprotonet_results.txt file in the CarRacing directory. The same for the networks pwnet* and pwnet** in which the results are stored in pwnet*_results.txt and pwnet**_results.txt respectively.
 
--- In order to see the behaviour of the running loss through epochs at each iteration, at the end of the execution of *run_myprotonet.py*, *run_pwnet*.py* and *run_pwnet**.py*, simply run (always inside the CarRacing directory):
+-- In order to see the behaviour of the running loss through epochs at each iteration, at the end of the execution of run_myprotonet.py, run_pwnet*.py and run_pwnet**.py, simply run (always inside the CarRacing directory):
 ```
 tensorboard --logdir=runs
 ```
