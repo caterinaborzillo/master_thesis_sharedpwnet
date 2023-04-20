@@ -180,7 +180,7 @@ for p in num_proto: # [4, 6, 9]
         print(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}")
         print(f"NUM_SLOTS: {NUM_SLOTS_PER_CLASS}")
         
-        with open('model_results.txt', 'a') as f:
+        with open('myprotonet_results.txt', 'a') as f:
             f.write("--------------------------------------------------------------------------------------------------------------------------\n")
             f.write(f"model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}\n")
             f.write(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}\n")
@@ -193,10 +193,10 @@ for p in num_proto: # [4, 6, 9]
 
         for iter in range(NUM_ITERATIONS):
             
-            with open('model_results.txt', 'a') as f:
+            with open('myprotonet_results.txt', 'a') as f:
                 f.write(f"ITERATION {iter+1}: \n")
                 
-            writer = SummaryWriter(f"runs/model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/Iteration_{iter+1}")
+            writer = SummaryWriter(f"runs/myprotonet_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/Iteration_{iter+1}")
             
             cfg = load_config()
             env = CarRacing(frame_skip=0, frame_stack=4,)
@@ -376,7 +376,7 @@ for p in num_proto: # [4, 6, 9]
                     optimizer.step()
             
                 print("Epoch:", epoch, "Loss:", running_loss / len(train_loader), "Train_error:", train_error)
-                with open('model_results.txt', 'a') as f:
+                with open('myprotonet_results.txt', 'a') as f:
                     f.write(f"Epoch: {epoch}, Loss: {running_loss / len(train_loader)}, Train_error: {train_error}\n")
                 #writer.add_scalar("Loss_mse/train", running_loss_mse/len(train_loader), epoch)
                 #writer.add_scalar("Loss_clst/train", running_loss_clst/len(train_loader), epoch)
@@ -430,7 +430,7 @@ for p in num_proto: # [4, 6, 9]
             data_errors.append(sum(all_errors) / SIMULATION_EPOCHS)
             print("Data reward: ", sum(reward_arr) / SIMULATION_EPOCHS)
             print("Data error: ", sum(all_errors) / SIMULATION_EPOCHS)
-            with open('model_results.txt', 'a') as f:
+            with open('myprotonet_results.txt', 'a') as f:
                 f.write(f"Data reward: {sum(reward_arr) / SIMULATION_EPOCHS}, Data error: {sum(all_errors) / SIMULATION_EPOCHS}\n")
 
         data_errors = np.array(data_errors)
@@ -448,7 +448,7 @@ for p in num_proto: # [4, 6, 9]
         print("Standard Error:", data_rewards.std() / np.sqrt(NUM_ITERATIONS))
         
         
-        with open('model_results.txt', 'a') as f:
+        with open('myprotonet_results.txt', 'a') as f:
             f.write("\n===== Data MAE:\n")
             f.write(f"Mean: {data_errors.mean()}\n")
             f.write(f"Standard Error: {data_errors.std() / np.sqrt(NUM_ITERATIONS)}\n")

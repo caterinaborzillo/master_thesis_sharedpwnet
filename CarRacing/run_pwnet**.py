@@ -5,6 +5,8 @@ import numpy as np
 import pickle
 import toml
 
+from torch.utils.tensorboard import SummaryWriter
+
 from copy import deepcopy
 from torch.utils.data import TensorDataset, DataLoader
 from argparse import ArgumentParser
@@ -133,12 +135,21 @@ def sep_loss(x, y, model, criterion):
     loss = torch.cdist(p, p).sum() / ((NUM_PROTOTYPES**2 - NUM_PROTOTYPES) / 2)
     return -loss 
 
+with open('pwnet**_results.txt', 'a') as f:
+    f.write("--------------------------------------------------------------------------------------------------------------------------\n")
+    f.write(f"model_pwnet**\n")
+    f.write(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}\n")
 
 data_rewards = list()
 data_errors = list()
 
-for _ in range(NUM_ITERATIONS):
+for iter in range(NUM_ITERATIONS):
 
+    with open('pwnet**_results.txt', 'a') as f:
+        f.write(f"ITERATION {iter+1}: \n")
+    
+    writer = SummaryWriter(f"runs/pwnet**/Iteration_{iter+1}")
+    
     ## Load Pre-Trained Agent & Simulated Data
     cfg = load_config()
     env = CarRacing(frame_skip=0, frame_stack=4,)
@@ -263,6 +274,10 @@ for _ in range(NUM_ITERATIONS):
             optimizer.step()
             
         print("Epoch:", epoch, "Loss:", running_loss / len(train_loader), "Train_error:", train_error)
+        with open('pwnet**_results.txt', 'a') as f:
+            f.write(f"Epoch: {epoch}, Loss: {running_loss / len(train_loader)}, Train_error: {train_error}\n")
+        writer.add_scalar("Running_loss/train", running_loss/len(train_loader), epoch)
+        
         scheduler.step()
         
 
@@ -304,7 +319,9 @@ for _ in range(NUM_ITERATIONS):
     data_errors.append(  sum(all_errors) / SIMULATION_EPOCHS )
     print("Data reward: ", sum(reward_arr) / SIMULATION_EPOCHS)
     print("Data error: ", sum(all_errors) / SIMULATION_EPOCHS )
-
+    with open('pwnet**_results.txt', 'a') as f:
+        f.write(f"Data reward: {sum(reward_arr) / SIMULATION_EPOCHS}, Data error: {sum(all_errors) / SIMULATION_EPOCHS}\n")
+    
 data_errors = np.array(data_errors)
 data_rewards = np.array(data_rewards)
 
@@ -318,3 +335,12 @@ print("===== Data Reward:")
 print("Rewards:", data_rewards)
 print("Mean:", data_rewards.mean())
 print("Standard Error:", data_rewards.std() / np.sqrt(NUM_ITERATIONS)  )
+
+with open('pwnet**_results.txt', 'a') as f:
+    f.write("\n===== Data MAE:\n")
+    f.write(f"Mean: {data_errors.mean()}\n")
+    f.write(f"Standard Error: {data_errors.std() / np.sqrt(NUM_ITERATIONS)}\n")
+    f.write("\n===== Data Reward:\n")
+    f.write(f"Rewards:  {data_rewards}\n")
+    f.write(f"Mean: {data_rewards.mean()}\n")
+    f.write(f"Standard Error: {data_rewards.std() / np.sqrt(NUM_ITERATIONS)}\n")

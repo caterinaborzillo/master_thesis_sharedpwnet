@@ -5,6 +5,8 @@ import numpy as np
 import pickle
 import toml
 
+from torch.utils.tensorboard import SummaryWriter
+
 from copy import deepcopy
 from torch.utils.data import TensorDataset, DataLoader
 from argparse import ArgumentParser
@@ -133,11 +135,20 @@ def sep_loss(x, y, model, criterion):
     loss = torch.cdist(p, p).sum() / ((NUM_PROTOTYPES**2 - NUM_PROTOTYPES) / 2)
     return -loss 
 
+with open('pwnet*_results.txt', 'a') as f:
+    f.write("--------------------------------------------------------------------------------------------------------------------------\n")
+    f.write(f"model_pwnet*\n")
+    f.write(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}\n")
 
 data_rewards = list()
 data_errors = list()
 
-for _ in range(NUM_ITERATIONS):
+for iter in range(NUM_ITERATIONS):
+    
+    with open('pwnet*_results', 'a') as f:
+        f.write(f"ITERATION {iter+1}: \n")
+
+    writer = SummaryWriter(f"runs/pwnet*/Iteration_{iter+1}")
 
     ## Load Pre-Trained Agent & Simulated Data
     cfg = load_config()
@@ -217,12 +228,17 @@ for _ in range(NUM_ITERATIONS):
             optimizer.step()
         
         print("Epoch:", epoch, "Loss:", running_loss / len(train_loader), "Train_error:", train_error)
+        with open('pwnet*_results.txt', 'a') as f:
+            f.write(f"Epoch: {epoch}, Loss: {running_loss / len(train_loader)}, Train_error: {train_error}\n")
+        
+        writer.add_scalar("Running_loss/train", running_loss/len(train_loader), epoch)
+        
         scheduler.step()
 
     # Project Prototypes
     model.eval()
     model.load_state_dict(torch.load(MODEL_DIR))
-    print("Accuracy Before Projection:", evaluate_loader(model, train_loader, mse_loss))
+    #print("Accuracy Before Projection:", evaluate_loader(model, train_loader, mse_loss))
     trans_x = list()
     model.eval()
     with torch.no_grad():
@@ -243,8 +259,8 @@ for _ in range(NUM_ITERATIONS):
         knn = KNeighborsRegressor(algorithm='brute')
         knn.fit(trans_x, list(range(len(trans_x)))) # lista da 0 a len(tran_x)
         dist, nn_idx = knn.kneighbors(X=trained_prototype, n_neighbors=1, return_distance=True)
-        print(f"Trained prototype p{i}: \n")
-        print(f"distance: {dist.item()}, index of nearest point: {nn_idx.item()} \n")
+        #print(f"Trained prototype p{i}: \n")
+        #print(f"distance: {dist.item()}, index of nearest point: {nn_idx.item()} \n")
         nn_x = trans_x[nn_idx.item()]    
         nn_xs.append(nn_x.tolist())
     trained_prototypes = model.prototypes.clone().detach()
@@ -253,7 +269,7 @@ for _ in range(NUM_ITERATIONS):
     tensor_proj_prototypes = torch.tensor(nn_xs, dtype=torch.float32)
     model.prototypes = torch.nn.Parameter(tensor_proj_prototypes.to(DEVICE))
     torch.save(model.state_dict(), MODEL_DIR)
-    print("Accuracy After Projection:", evaluate_loader(model, train_loader, mse_loss))
+    #print("Accuracy After Projection:", evaluate_loader(model, train_loader, mse_loss))
 
 
     states, actions, rewards, log_probs, values, dones, X_train = [], [], [], [], [], [], []
@@ -294,6 +310,8 @@ for _ in range(NUM_ITERATIONS):
     data_errors.append(  sum(all_errors) / SIMULATION_EPOCHS )
     print("Data reward: ", sum(reward_arr) / SIMULATION_EPOCHS)
     print("Data error: ", sum(all_errors) / SIMULATION_EPOCHS )
+    with open('pwnet*_results.txt', 'a') as f:
+        f.write(f"Data reward: {sum(reward_arr) / SIMULATION_EPOCHS}, Data error: {sum(all_errors) / SIMULATION_EPOCHS}\n")
 
 data_errors = np.array(data_errors)
 data_rewards = np.array(data_rewards)
@@ -308,3 +326,12 @@ print("===== Data Reward:")
 print("Rewards:", data_rewards)
 print("Mean:", data_rewards.mean())
 print("Standard Error:", data_rewards.std() / np.sqrt(NUM_ITERATIONS)  )
+
+with open('pwnet*_results.txt', 'a') as f:
+    f.write("\n===== Data MAE:\n")
+    f.write(f"Mean: {data_errors.mean()}\n")
+    f.write(f"Standard Error: {data_errors.std() / np.sqrt(NUM_ITERATIONS)}\n")
+    f.write("\n===== Data Reward:\n")
+    f.write(f"Rewards:  {data_rewards}\n")
+    f.write(f"Mean: {data_rewards.mean()}\n")
+    f.write(f"Standard Error: {data_rewards.std() / np.sqrt(NUM_ITERATIONS)}\n")
