@@ -15,7 +15,7 @@ pip install scikit-learn
 
 pip install tensorboard
 ```
-Inside the CarRacing directory of the repo, simply run:
+In order to train the networks (all networks are trained for 100 epochs), inside the CarRacing directory of the repo, run:
 
 - For Prototype-Wrapper Network* (PW-Net*) (trainable parameters version of PW-Net) from paper *"Towards Interpretable Deep Reinforcement Learning with Human-Friendly Prototypes"*[^1]:
 ```
