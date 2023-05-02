@@ -50,7 +50,7 @@ ppo = PPO(
 
 ppo.load("weights/agent_weights.pt")
 states, real_actions, rewards, X_train = [], [], [], []
-self_state = ppo._to_tensor(env.reset())
+self_state = ppo._to_tensor(env.reset()) # transform the observation in a tensor
 reward_arr = list()
 
 
@@ -60,15 +60,16 @@ for ep in tqdm(range(NUM_EPISODES)):
 	rew = 0
 	done = False
 	count = 0
-
+ 
+	ep_states = list()
 	ep_actions = list()
 	ep_x = list()
-
 	while not done:
 
 		count += 1
 
 		# Run one step of the environment based on the current policy
+  		# self_state: is the observation transformed in tensor
 		value, alpha, beta, x = ppo.net(self_state)
 		value, alpha, beta = value.squeeze(0), alpha.squeeze(0), beta.squeeze(0)
 		policy = Beta(alpha, beta)
@@ -81,11 +82,13 @@ for ep in tqdm(range(NUM_EPISODES)):
 		next_state, reward, done, info, real_action = ppo.env.step(input_action.cpu().numpy())
 		next_state = ppo._to_tensor(next_state)
 
+		img_array = env.render(mode='rgb_array')
+		ep_states.append(img_array)
+  
 		# # Store the transition
 		ep_actions.append(real_action.tolist())
 		ep_x.append(x.tolist()[0])
-		# ep_states.append(self_state)
-
+		
 		self_state = next_state
 		rew += reward
 
@@ -95,13 +98,17 @@ for ep in tqdm(range(NUM_EPISODES)):
 	print(count)
 
 	# Store the transition
-	# states.append(ep_states)
+	states.append(ep_states)
+ 
 	real_actions.append(ep_actions)
 	X_train.append(ep_x)
 	rew += reward
 
 
 print("average reward per episode :", sum(reward_arr) / NUM_EPISODES)
+
+#with open('/media/caterina/287CD7D77CD79E3E/cate/X_train_observations.pkl', 'wb') as f:
+#	pickle.dump(states, f)
 
 with open('data/X_train.pkl', 'wb') as f:
 	pickle.dump(X_train, f)

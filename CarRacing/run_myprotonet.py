@@ -8,27 +8,29 @@ import toml
 from torch.utils.tensorboard import SummaryWriter
 
 from copy import deepcopy
+from PIL import Image
 from torch.utils.data import TensorDataset, DataLoader
 from torch.nn.functional import gumbel_softmax, cosine_similarity
 from argparse import ArgumentParser
 from os.path import join
+from itertools import combinations
 from games.carracing import RacingNet, CarRacing
 from ppo import PPO
 from torch.distributions import Beta
 from tqdm import tqdm
 from sklearn.neighbors import KNeighborsRegressor
 
-NUM_ITERATIONS = 5
+NUM_ITERATIONS = 2 #5
 CONFIG_FILE = "config.toml"
 #MODEL_DIR = 'weights/myprotonet.pth'
 BATCH_SIZE = 32
 LATENT_SIZE = 256
-NUM_EPOCHS = 100 
+NUM_EPOCHS = 15 # 100
 PROTOTYPE_SIZE = 50
 #NUM_PROTOTYPES = 7
 NUM_CLASSES = 3
 DEVICE = 'cuda'
-SIMULATION_EPOCHS = 10
+SIMULATION_EPOCHS = 3 #10
 #NUM_SLOTS_PER_CLASS = 2
 clst_weight = 0.08 # before: 0.08
 sep_weight = -0.008 # before: 0.008
@@ -224,6 +226,9 @@ for p in num_proto: # [4, 6, 9]
                 X_train = pickle.load(f)
             with open('data/real_actions.pkl', 'rb') as f:
                 real_actions = pickle.load(f)
+            #with open('/media/caterina/287CD7D77CD79E3E/cate/X_train_observations.pkl', 'rb') as f:
+            #    X_train_observations = pickle.load(f)
+            #X_train_observations = np.array([item for sublist in X_train_observations for item in sublist])
 
             X_train = np.array([item for sublist in X_train for item in sublist])
             real_actions = np.array([item for sublist in real_actions for item in sublist])
@@ -291,7 +296,12 @@ for p in num_proto: # [4, 6, 9]
                         dist, transf_idx = knn.kneighbors(X=trained_prototype, n_neighbors=1, return_distance=True)
                         #print(f"Trained prototype p{i}:")
                         #print(f"distance: {dist.item()}, index of nearest point: {transf_idx.item()}")
-                        projected_prototype = X_train[transf_idx.item()]    
+                        projected_prototype = X_train[transf_idx.item()]   
+                        #if epoch  == NUM_EPOCHS-6 and iter == 3:
+                        #    prototype_image = X_train_observations[transf_idx.item()]
+                        #    prototype_image = Image.fromarray(prototype_image, 'RGB')
+                            #prototype_image.save(f'/media/caterina/287CD7D77CD79E3E/cate/prototypes/prototype_{i+1}.png')
+                        #    prototype_image.save(f'prototype_{i+1}_model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}.png')
                         list_projected_prototype.append(projected_prototype.tolist())
                     trained_prototypes = model.prototypes.clone().detach()
                     # praticamente vado a sostituire i prototipi allenati durante il training con gli stati (dopo la projection_network) che sono più vicini ai prototipi
@@ -327,11 +337,22 @@ for p in num_proto: # [4, 6, 9]
                     loss1 = mse_loss(logits, labels) 
                     # orthogonal loss --> for slots orthogonality: in this way successive slots of a class are assigned to different prototypes
                     orthogonal_loss = torch.Tensor([0]).to(DEVICE)
+                    '''
                     for c in range(0, model.proto_presence.shape[0], 1000): # model.proto_presence.shape[0]: NUM_CLASSES
                         orthogonal_loss_p = cosine_similarity(model.proto_presence.unsqueeze(2)[c:c+1000],model.proto_presence.unsqueeze(-1)[c:c+1000], dim=1).sum()
                         orthogonal_loss += orthogonal_loss_p
                     orthogonal_loss = orthogonal_loss / (NUM_SLOTS_PER_CLASS * NUM_CLASSES) - 1 # page 7 of paper
-
+                    '''
+                    for c in range(model.proto_presence.shape[0]): # NUM_CLASSES
+                        list_p = list(range(1, model.proto_presence.shape[1]+1))
+                        for (i,j) in list(combinations(list_p, 2)):
+                            s1 = model.proto_presence[c][i-1].view(1,-1)
+                            s2 = model.proto_presence[c][j-1].view(1,-1)
+                            sim = cosine_similarity(s1, s2, dim=1).sum()
+                            orthogonal_loss += sim
+                    orthogonal_loss = orthogonal_loss / (NUM_SLOTS_PER_CLASS * NUM_CLASSES) - 1
+                    
+                    
                     labels_p = labels.cpu().numpy().tolist()
                     labels_pp = list()
                     for label in (labels_p):
