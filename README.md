@@ -18,7 +18,7 @@ pip install tensorboard
 
 - First run this inside CarRacing directory to collect the data needed to train the neural networks:
 ```
-python collect_data.py.py
+python collect_data.py
 ```
 
 
@@ -39,16 +39,17 @@ python run_pwnet_star_star.py
 python run_myprotonet.py
 ```
 
--- NOTES:
-At the end of the training the following directories will be created:
-- weights/: where the best models' parameters (among all epochs) are saved for every iteration (NUM_ITERATIONS=5)
-- results/: where all the models' results are stored in .txt files
-- prototypes/: where all the prototypes found by the models are saved 
-- runs/: to log and visualize training statistics
+- NOTES:
+
+- At the end of the training the following directories will be created:
+    - weights/: where the best models' parameters (among all epochs) are saved for every iteration (NUM_ITERATIONS=5)
+    - results/: where all the models' results are stored in .txt files
+    - prototypes/: where all the prototypes found by the models are saved 
+    - runs/: to log and visualize training statistics
 
 
 
--- In order to see the behaviour of the running loss through epochs at each iteration, at the end of the execution of run_myprotonet.py, run_pwnet_star.py and run_pwnet_star_star.py, simply run (always inside the CarRacing directory):
+- In order to see the behaviour of the running loss through epochs at each iteration, at the end of the execution of run_myprotonet.py, run_pwnet_star.py and run_pwnet_star_star.py, simply run (always inside the CarRacing directory):
 ```
 tensorboard --logdir=runs
 ```
