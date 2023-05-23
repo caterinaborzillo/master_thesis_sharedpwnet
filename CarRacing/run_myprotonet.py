@@ -12,6 +12,7 @@ from PIL import Image
 from torch.utils.data import TensorDataset, DataLoader
 from torch.nn.functional import gumbel_softmax, cosine_similarity
 from argparse import ArgumentParser
+import os
 from os.path import join
 from itertools import combinations
 from games.carracing import RacingNet, CarRacing
@@ -30,14 +31,14 @@ PROTOTYPE_SIZE = 50
 #NUM_PROTOTYPES = 7
 NUM_CLASSES = 3
 DEVICE = 'cuda'
-SIMULATION_EPOCHS = 10
+SIMULATION_EPOCHS = 30
 #NUM_SLOTS_PER_CLASS = 2
-clst_weight = 0.08 # before: 0.08
-sep_weight = -0.008 # before: 0.008
-l1_weight = 1e-4
+clst_weight = 0.008 # before: 0.08
+sep_weight = -0.0008 # before: 0.008
+l1_weight = 1e-5 #1e-4
 
-num_proto = [4, 6, 9]
-num_slots = [1 ,2 ,3]
+num_proto = [4, 6] #num_proto = [4, 6, 9]
+num_slots = [2] #num_slots = [1 ,2 ,3]
 
 def print_info():
     print("Training INFO:")
@@ -117,8 +118,6 @@ class MyProtoNet(nn.Module):
 
         out1 = self.class_identity_layer(mixed_similarity.flatten(start_dim=1))
         
-        #out2 = self.final_linear(out1)
-        
         out2 = self.output_activations(out1)
         return out2, x, similarity, proto_presence
 
@@ -174,31 +173,42 @@ def maximum(a, b, c):
           
     return largest 
 
-for p in num_proto: # [4, 6, 9]
-    for s in num_slots: # [1 ,2 ,3]
+if not os.path.exists('results/'):
+    os.makedirs('results/')
+if not os.path.exists('prototypes/'):
+    os.makedirs('prototypes/')
+    
+for p in num_proto: 
+    for s in num_slots: 
         
         NUM_PROTOTYPES = p
         NUM_SLOTS_PER_CLASS = s
         print(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}")
         print(f"NUM_SLOTS: {NUM_SLOTS_PER_CLASS}")
         
-        with open('myprotonet_results.txt', 'a') as f:
+        with open('results/myprotonet_results.txt', 'a') as f:
             f.write("--------------------------------------------------------------------------------------------------------------------------\n")
             f.write(f"model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}\n")
             f.write(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}\n")
             f.write(f"NUM_SLOTS: {NUM_SLOTS_PER_CLASS}\n")
         
-        MODEL_DIR = f'weights/model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}'
+        #MODEL_DIR = f'weights/model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}'
         
         data_rewards = list()
         data_errors = list()
 
         for iter in range(NUM_ITERATIONS):
             
-            with open('myprotonet_results.txt', 'a') as f:
-                f.write(f"ITERATION {iter+1}: \n")
+            MODEL_DIR = f'weights/model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/'
+            if not os.path.exists(MODEL_DIR):
+                os.makedirs(MODEL_DIR)
+            
+            MODEL_DIR_ITER = f'weights/model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}.pth'
+            
+            with open('results/myprotonet_results.txt', 'a') as f:
+                f.write(f"ITERATION {iter}: \n")
                 
-            writer = SummaryWriter(f"runs/myprotonet_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/Iteration_{iter+1}")
+            writer = SummaryWriter(f"runs/myprotonet_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/Iteration_{iter}")
             
             cfg = load_config()
             env = CarRacing(frame_skip=0, frame_stack=4,)
@@ -229,6 +239,10 @@ for p in num_proto: # [4, 6, 9]
             #with open('/media/caterina/287CD7D77CD79E3E/cate/X_train_observations.pkl', 'rb') as f:
             #    X_train_observations = pickle.load(f)
             #X_train_observations = np.array([item for sublist in X_train_observations for item in sublist])
+            
+            with open('data/obs_train.pkl', 'rb') as f:
+                X_train_observations = pickle.load(f)
+            X_train_observations = np.array([item for sublist in X_train_observations for item in sublist])
 
             X_train = np.array([item for sublist in X_train for item in sublist])
             real_actions = np.array([item for sublist in real_actions for item in sublist])
@@ -243,7 +257,7 @@ for p in num_proto: # [4, 6, 9]
             mse_loss = nn.MSELoss()
             optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=1e-8)
             scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
-            best_error = 0.
+            best_error = float('inf')
             model.train()
             
             '''
@@ -256,7 +270,6 @@ for p in num_proto: # [4, 6, 9]
             class_identity_layer.weight 
 
             '''
-            first_time=True
             running_loss = running_loss_mse = running_loss_clst = running_loss_sep = running_loss_l1 =  running_loss_ortho = 0.
             for epoch in range(NUM_EPOCHS):
                 model.eval()
@@ -264,12 +277,12 @@ for p in num_proto: # [4, 6, 9]
                 train_error = evaluate_loader(model, gumbel_scalar, train_loader, mse_loss)
                 model.train()
         
-                if train_error < best_error:
-                    torch.save(model.state_dict(), MODEL_DIR) # saves model parameters
+                if train_error < best_error and epoch > NUM_EPOCHS-20:
+                    torch.save(model.state_dict(), MODEL_DIR_ITER) # saves model parameters
                     best_error = train_error
                 
                 # prototype projection every 2 epochs
-                if epoch >= 10 and epoch % 2 == 0 and epoch < NUM_EPOCHS-5:
+                if epoch >= 10 and epoch % 2 == 0 and epoch < NUM_EPOCHS-20:
                     #print("Projecting prototypes...")
                     transformed_x = list()
                     model.eval()
@@ -283,7 +296,6 @@ for p in num_proto: # [4, 6, 9]
                     transformed_x = np.array(transformed_x)
                     
                     list_projected_prototype = list()
-                    nn_human_images = list()
                     for i in range(NUM_PROTOTYPES):
                         # I take the trained prototype p
                         trained_p = model.projection_network(model.prototypes)
@@ -296,13 +308,16 @@ for p in num_proto: # [4, 6, 9]
                         dist, transf_idx = knn.kneighbors(X=trained_prototype, n_neighbors=1, return_distance=True)
                         #print(f"Trained prototype p{i}:")
                         #print(f"distance: {dist.item()}, index of nearest point: {transf_idx.item()}")
-                        projected_prototype = X_train[transf_idx.item()]   
-                        #if epoch  == NUM_EPOCHS-6 and iter == 3:
-                        #    prototype_image = X_train_observations[transf_idx.item()]
-                        #    prototype_image = Image.fromarray(prototype_image, 'RGB')
-                            #prototype_image.save(f'/media/caterina/287CD7D77CD79E3E/cate/prototypes/prototype_{i+1}.png')
-                        #    prototype_image.save(f'prototype_{i+1}_model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}.png')
+                        projected_prototype = transformed_x[transf_idx.item()]   # X_train[transf_idx.item()]
                         list_projected_prototype.append(projected_prototype.tolist())
+                        
+                        if epoch == NUM_EPOCHS-20-2: 
+                            print("I'm saving prototypes' images in prototypes/ directory...")
+                            prototype_image = X_train_observations[transf_idx.item()]
+                            prototype_image = Image.fromarray(prototype_image, 'RGB')
+                            #prototype_image.save(f'/media/caterina/287CD7D77CD79E3E/cate/prototypes/prototype_{i+1}.png')
+                            prototype_image.save(f'prototypes/prototype{i+1}_myprotonet_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_iter{iter}.png')
+                        
                     trained_prototypes = model.prototypes.clone().detach()
                     # praticamente vado a sostituire i prototipi allenati durante il training con gli stati (dopo la projection_network) che sono più vicini ai prototipi
                     # è come se facessi una proiezione dei prototipi (allenati da zero) sugli stati (veri stati nel training set)
@@ -311,7 +326,7 @@ for p in num_proto: # [4, 6, 9]
                     model.train()
                     
                 # freezed prototypes and projection network, training only proto_presence (prototype assignment) + class_identity_layer (last layer)
-                if epoch >= NUM_EPOCHS-5:
+                if epoch >= NUM_EPOCHS-20:
                     for name, param in model.named_parameters():
                         if "prototypes" in name: 
                             param.requires_grad = False 
@@ -397,14 +412,15 @@ for p in num_proto: # [4, 6, 9]
                     optimizer.step()
             
                 print("Epoch:", epoch, "Loss:", running_loss / len(train_loader), "Train_error:", train_error)
-                with open('myprotonet_results.txt', 'a') as f:
+                with open('results/myprotonet_results.txt', 'a') as f:
                     f.write(f"Epoch: {epoch}, Loss: {running_loss / len(train_loader)}, Train_error: {train_error}\n")
                 #writer.add_scalar("Loss_mse/train", running_loss_mse/len(train_loader), epoch)
                 #writer.add_scalar("Loss_clst/train", running_loss_clst/len(train_loader), epoch)
                 #writer.add_scalar("Loss_sep/train", running_loss_sep/len(train_loader), epoch)
                 #writer.add_scalar("Loss_l1/train", running_loss_l1/len(train_loader), epoch)
                 #writer.add_scalar("Loss_ortho/train", running_loss_ortho/len(train_loader), epoch)
-                writer.add_scalar("Running_loss/train", running_loss/len(train_loader), epoch)
+                writer.add_scalar("Running_loss", running_loss/len(train_loader), epoch)
+                writer.add_scalar("Train_error", train_error, epoch)
                 running_loss = running_loss_mse = running_loss_clst = running_loss_sep = running_loss_l1 =  running_loss_ortho = 0.
                     
                 scheduler.step()
@@ -413,13 +429,21 @@ for p in num_proto: # [4, 6, 9]
             self_state = ppo._to_tensor(env.reset())
 
             # Wrapper model with learned weights
-            model.eval()
+            #model.eval()
+            
+            # Wrapper model with learned weights
+            model = MyProtoNet().eval()
+            model.load_state_dict(torch.load(MODEL_DIR_ITER))
+            model.to(DEVICE)
+            print("Checking for the error... :", evaluate_loader(model, gumbel_scalar, train_loader, mse_loss))
+    
             reward_arr = []
             all_errors = list()
             for i in tqdm(range(SIMULATION_EPOCHS)):
                 state = ppo._to_tensor(env.reset())
                 count = 0
                 rew = 0
+                rew_list = []
                 model.eval()
 
                 for t in range(10000):
@@ -430,28 +454,33 @@ for p in num_proto: # [4, 6, 9]
                     # policy network: uses estimates of the value function to select actions that are more likely to lead higher rewards
                     policy = Beta(alpha, beta)
                     input_action = policy.mean.detach()
+                    bb_action = ppo.env.preprocess(input_action.cpu().numpy())
                     # perform the action "input_action" found by the policy network
-                    _, _, _, _, bb_action = ppo.env.step(input_action.cpu().numpy())
+                    ##_, _, _, _, bb_action = ppo.env.step(input_action.cpu().numpy())
                     # bb_action size [3] --> è l'azione della stessa forma dell'output del mio modello (per poterli confrontare)
                     action, _, _, _ = model(latent_x.to(DEVICE), gumbel_scalar)
                     # action size [1,3]
-                    all_errors.append(mse_loss(bb_action.to(DEVICE), action[0]).detach().item())
+                    all_errors.append(mse_loss(torch.tensor(bb_action).to(DEVICE), action[0]).detach().item())
 
                     state, reward, done, _, _ = ppo.env.step(action[0].detach().cpu().numpy(), real_action=True)
                     state = ppo._to_tensor(state)
                     rew += reward
+                    rew_list.append(reward)
                     count += 1
                     
                     if done:
                         break
-
                 reward_arr.append(rew)
 
             data_rewards.append(sum(reward_arr) / SIMULATION_EPOCHS)
             data_errors.append(sum(all_errors) / SIMULATION_EPOCHS)
             print("Data reward: ", sum(reward_arr) / SIMULATION_EPOCHS)
             print("Data error: ", sum(all_errors) / SIMULATION_EPOCHS)
-            with open('myprotonet_results.txt', 'a') as f:
+            # log the reward and MAE
+            writer.add_scalar("Reward", sum(reward_arr) / SIMULATION_EPOCHS, iter)
+            writer.add_scalar("MAE", sum(all_errors) / SIMULATION_EPOCHS, iter)
+            
+            with open('results/myprotonet_results.txt', 'a') as f:
                 f.write(f"Data reward: {sum(reward_arr) / SIMULATION_EPOCHS}, Data error: {sum(all_errors) / SIMULATION_EPOCHS}\n")
 
         data_errors = np.array(data_errors)
@@ -460,6 +489,7 @@ for p in num_proto: # [4, 6, 9]
 
         print(" ")
         print("===== Data MAE:")
+        print("Errors:", data_errors)
         print("Mean:", data_errors.mean())
         print("Standard Error:", data_errors.std() / np.sqrt(NUM_ITERATIONS))
         print(" ")
@@ -469,7 +499,7 @@ for p in num_proto: # [4, 6, 9]
         print("Standard Error:", data_rewards.std() / np.sqrt(NUM_ITERATIONS))
         
         
-        with open('myprotonet_results.txt', 'a') as f:
+        with open('results/myprotonet_results.txt', 'a') as f:
             f.write("\n===== Data MAE:\n")
             f.write(f"Mean: {data_errors.mean()}\n")
             f.write(f"Standard Error: {data_errors.std() / np.sqrt(NUM_ITERATIONS)}\n")

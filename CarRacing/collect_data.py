@@ -29,7 +29,11 @@ def load_config():
 
 
 cfg = load_config()
-env = CarRacing(frame_skip=0, frame_stack=4)
+env = CarRacing(frame_skip=0, frame_stack=4) 
+'''
+  frame_skip=0  --> the agent takes actions on every frame.
+  frame_stack=4 --> how many consecutive frames are stacked together to create an observation. In this case, 4 frames are stacked to form an observation
+'''
 net = RacingNet(env.observation_space.shape, env.action_space.shape)
 ppo = PPO(
 	env,
@@ -65,9 +69,7 @@ for ep in tqdm(range(NUM_EPISODES)):
 	ep_actions = list()
 	ep_x = list()
 	while not done:
-
 		count += 1
-
 		# Run one step of the environment based on the current policy
   		# self_state: is the observation transformed in tensor
 		value, alpha, beta, x = ppo.net(self_state)
@@ -85,7 +87,7 @@ for ep in tqdm(range(NUM_EPISODES)):
 		img_array = env.render(mode='rgb_array')
 		ep_states.append(img_array)
   
-		# # Store the transition
+		# Store the transition
 		ep_actions.append(real_action.tolist())
 		ep_x.append(x.tolist()[0])
 		
@@ -98,10 +100,9 @@ for ep in tqdm(range(NUM_EPISODES)):
 	print(count)
 
 	# Store the transition
-	states.append(ep_states)
- 
-	real_actions.append(ep_actions)
-	X_train.append(ep_x)
+	states.append(ep_states) # prototypes
+	real_actions.append(ep_actions) # actions
+	X_train.append(ep_x) # states 
 	rew += reward
 
 
@@ -114,8 +115,9 @@ with open('data/X_train.pkl', 'wb') as f:
 	pickle.dump(X_train, f)
 with open('data/real_actions.pkl', 'wb') as f:
 	pickle.dump(real_actions, f)
-# with open('data/obs_train.pkl', 'wb') as f:
-# 	pickle.dump(states, f)
+with open('data/obs_train.pkl', 'wb') as f:
+ 	pickle.dump(states, f)
+
 # with open('data/saved_materials.pkl', 'wb') as f:
 # 	pickle.dump(saved_materials, f)
 
