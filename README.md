@@ -14,13 +14,14 @@ pip install gym-notices==0.0.7
 pip install scikit-learn
 
 pip install tensorboard
+```
 
 - First run this inside CarRacing directory to collect the data needed to train the neural networks:
 ```
-python collect_data.py
+python collect_data.py.py
 ```
 
-```
+
 Then, in order to train the networks (all networks are trained for 100 epochs), always inside the CarRacing directory of the repo, run:
 
 - For Prototype-Wrapper Network* (PW-Net*) (trainable parameters version of PW-Net) from paper *"Towards Interpretable Deep Reinforcement Learning with Human-Friendly Prototypes"*[^1]:
