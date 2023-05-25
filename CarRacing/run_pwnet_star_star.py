@@ -277,7 +277,9 @@ for iter in range(NUM_ITERATIONS):
             # praticamente vado a sostituire i prototipi allenati durante il training con gli stati (dopo f_enc/projection_network) che sono più vicini ai prototipi
             # è come se facessi una proiezione dei prototipi (allenati da zero) sugli stati (veri stati nel training set)
             tensor_proj_prototypes = torch.tensor(nn_xs, dtype=torch.float32)
-            model.prototypes = torch.nn.Parameter(tensor_proj_prototypes.to(DEVICE))
+            #model.prototypes = torch.nn.Parameter(tensor_proj_prototypes.to(DEVICE))
+            with torch.no_grad():
+                model.prototypes.copy_(tensor_proj_prototypes.to(DEVICE))
             model.train()
 
 

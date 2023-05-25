@@ -85,6 +85,7 @@ class MyProtoNet(nn.Module):
         b_size = x.shape[0]
         transf_proto = list()
         for i in range(NUM_PROTOTYPES):
+            #print(self.prototypes[i].view(1,-1).shape)
             transf_proto.append(self.projection_network(self.prototypes[i].view(1, -1)))
         latent_protos = torch.cat(transf_proto, dim=0) 
         
@@ -308,7 +309,7 @@ for p in num_proto:
                         dist, transf_idx = knn.kneighbors(X=trained_prototype, n_neighbors=1, return_distance=True)
                         #print(f"Trained prototype p{i}:")
                         #print(f"distance: {dist.item()}, index of nearest point: {transf_idx.item()}")
-                        projected_prototype = transformed_x[transf_idx.item()]   # X_train[transf_idx.item()]
+                        projected_prototype = X_train[transf_idx.item()]# transformed_x[transf_idx.item()]
                         list_projected_prototype.append(projected_prototype.tolist())
                         
                         if epoch == NUM_EPOCHS-20-2: 
@@ -322,7 +323,9 @@ for p in num_proto:
                     # praticamente vado a sostituire i prototipi allenati durante il training con gli stati (dopo la projection_network) che sono più vicini ai prototipi
                     # è come se facessi una proiezione dei prototipi (allenati da zero) sugli stati (veri stati nel training set)
                     tensor_projected_prototype = torch.tensor(list_projected_prototype, dtype=torch.float32) # (num_prot, 50)
-                    model.prototypes = torch.nn.Parameter(tensor_projected_prototype.to(DEVICE))
+                    #model.prototypes = torch.nn.Parameter(tensor_projected_prototype.to(DEVICE))
+                    with torch.no_grad():
+                        model.prototypes.copy_(tensor_projected_prototype.to(DEVICE))
                     model.train()
                     
                 # freezed prototypes and projection network, training only proto_presence (prototype assignment) + class_identity_layer (last layer)

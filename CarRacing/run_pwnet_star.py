@@ -311,7 +311,6 @@ for iter in range(NUM_ITERATIONS):
         rew = 0
         model.eval()
 
-        prova=True
         for t in range(10000):
             # Get black box action
             value, alpha, beta, latent_x = ppo.net(state)
@@ -321,10 +320,6 @@ for iter in range(NUM_ITERATIONS):
             _, _, _, _, bb_action = ppo.env.step(input_action.cpu().numpy())
 
             action = model(latent_x.to(DEVICE))
-            if prova:
-                print(action.size())
-                print(action)
-                prova=False
             all_errors.append(  mse_loss(bb_action.to(DEVICE), action[0][0]).detach().item()  )
             #all_errors.append(  mse_loss(bb_action.to(DEVICE), action[0]).detach().item()  )
 
