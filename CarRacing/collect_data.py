@@ -108,8 +108,6 @@ for ep in tqdm(range(NUM_EPISODES)):
 
 print("average reward per episode :", sum(reward_arr) / NUM_EPISODES)
 
-with open('data/X_train_observations.pkl', 'wb') as f:
-	pickle.dump(states, f)
 
 with open('data/X_train.pkl', 'wb') as f:
 	pickle.dump(X_train, f)

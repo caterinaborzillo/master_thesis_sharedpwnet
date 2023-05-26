@@ -22,7 +22,7 @@ from tqdm import tqdm
 from time import sleep
 
 
-NUM_ITERATIONS = 5 
+NUM_ITERATIONS = 5
 #MODEL_DIR = 'weights/pwnet_star_star.pth'
 CONFIG_FILE = "config.toml"
 NUM_CLASSES = 3
@@ -329,8 +329,7 @@ for iter in range(NUM_ITERATIONS):
             _, _, _, _, bb_action = ppo.env.step(input_action.cpu().numpy())
 
             action = model(latent_x.to(DEVICE))
-            all_errors.append(  mse_loss(bb_action.to(DEVICE), action[0][0]).detach().item()  )
-            #all_errors.append(  mse_loss(bb_action.to(DEVICE), action[0]).detach().item()  )
+            all_errors.append(  mse_loss(bb_action.to(DEVICE), action[0]).detach().item()  )
 
             state, reward, done, _, _ = ppo.env.step(action[0][0].detach().cpu().numpy(), real_action=True)
             #state, reward, done, _, _ = ppo.env.step(action[0].detach().cpu().numpy(), real_action=True)
@@ -373,6 +372,7 @@ print("Standard Error:", data_rewards.std() / np.sqrt(NUM_ITERATIONS)  )
 
 with open('results/pwnet_star_star_results.txt', 'a') as f:
     f.write("\n===== Data MAE:\n")
+    f.write(f"Errors:  {data_errors}\n")
     f.write(f"Mean: {data_errors.mean()}\n")
     f.write(f"Standard Error: {data_errors.std() / np.sqrt(NUM_ITERATIONS)}\n")
     f.write("\n===== Data Reward:\n")

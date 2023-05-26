@@ -346,6 +346,7 @@ for iter in range(NUM_ITERATIONS):
     
     with open('results/pwnet_star_results.txt', 'a') as f:
         f.write(f"Data reward: {sum(reward_arr) / SIMULATION_EPOCHS}, Data error: {sum(all_errors) / SIMULATION_EPOCHS}\n")
+        
 
 data_errors = np.array(data_errors)
 data_rewards = np.array(data_rewards)
@@ -364,6 +365,7 @@ print("Standard Error:", data_rewards.std() / np.sqrt(NUM_ITERATIONS)  )
 
 with open('results/pwnet_star_results.txt', 'a') as f:
     f.write("\n===== Data MAE:\n")
+    f.write(f"Errors:  {data_errors}\n")
     f.write(f"Mean: {data_errors.mean()}\n")
     f.write(f"Standard Error: {data_errors.std() / np.sqrt(NUM_ITERATIONS)}\n")
     f.write("\n===== Data Reward:\n")
