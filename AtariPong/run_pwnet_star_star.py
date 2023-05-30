@@ -506,7 +506,7 @@ for iter in range(NUM_ITERATIONS):
             with torch.no_grad():    
                 for i in tqdm(range(len(X_train))):
                     img = X_train[i]
-                    temp = model.main( torch.tensor(img.reshape(1, -1), dtype=torch.float32) )
+                    temp = model.main( torch.tensor(img.reshape(1, -1), dtype=torch.float32).to(DEVICE) )
                     trans_x.append(temp[0].tolist())
             trans_x = np.array(trans_x)
 
