@@ -21,12 +21,12 @@ from torch.distributions import Beta
 from tqdm import tqdm
 from sklearn.neighbors import KNeighborsRegressor
 
-NUM_ITERATIONS = 5
+NUM_ITERATIONS = 1
 CONFIG_FILE = "config.toml"
 #MODEL_DIR = 'weights/myprotonet.pth'
 BATCH_SIZE = 32
 LATENT_SIZE = 256
-NUM_EPOCHS = 100
+NUM_EPOCHS = 80
 PROTOTYPE_SIZE = 50
 #NUM_PROTOTYPES = 7
 NUM_CLASSES = 3
@@ -37,8 +37,8 @@ clst_weight = 0.008 # before: 0.08
 sep_weight = -0.0008 # before: 0.008
 l1_weight = 1e-5 #1e-4
 
-num_proto = [4, 6] #num_proto = [4, 6, 9]
-num_slots = [2] #num_slots = [1 ,2 ,3]
+num_proto = [6]#[4, 6] #num_proto = [4, 6, 9]
+num_slots = [2]#[2] #num_slots = [1 ,2 ,3]
 
 def print_info():
     print("Training INFO:")
@@ -103,14 +103,14 @@ class MyProtoNet(nn.Module):
         out.T[2] = self.relu(out.T[2]) # brake > 0 
         return out
     
-    def forward(self, x, gumbel_scalar):
+    def forward(self, x, gumbel_scalar, tau):
         '''
         x (raw input) size: (batch, 256)
         '''
         if gumbel_scalar == 0:
             proto_presence = torch.softmax(self.proto_presence, dim=1)
         else:
-            proto_presence = gumbel_softmax(self.proto_presence * gumbel_scalar, dim=1, tau = 0.5)
+            proto_presence = gumbel_softmax(self.proto_presence * gumbel_scalar, dim=1, tau=tau)
         
         x = self.projection_network(x)
         similarity = self.prototype_layer(x)
@@ -122,7 +122,7 @@ class MyProtoNet(nn.Module):
         out2 = self.output_activations(out1)
         return out2, x, similarity, proto_presence
 
-def evaluate_loader(model, gumbel_scalar, loader, loss):
+def evaluate_loader(model, gumbel_scalar, loader, loss, tau):
     model.eval()
     total_error = 0
     total = 0
@@ -131,7 +131,7 @@ def evaluate_loader(model, gumbel_scalar, loader, loss):
             imgs, labels = data
             imgs, labels = imgs.to(DEVICE), labels.to(DEVICE)
             # size of imgs: [batch, 256], size of labels: [batch, 3]
-            logits, _, _, _ = model(imgs, gumbel_scalar)
+            logits, _, _, _ = model(imgs, gumbel_scalar, tau)
             current_loss = loss(logits, labels)
             total_error += current_loss.item()
             total += len(imgs)
@@ -142,6 +142,7 @@ start_val = 1.3
 end_val = 10 **3 
 epoch_interval = 30 # before: 10
 alpha2 = (end_val / start_val) ** 2 / epoch_interval
+alpha3 = 3.4 * 10**4
 
 def lambda1(epoch): return start_val * np.sqrt((alpha2 * (epoch))) if epoch < epoch_interval else end_val
 
@@ -154,12 +155,21 @@ def dist_loss(model, similarity, proto_presence, top_k, sep=False):
     #         model, [b, p],        [b, p, n],      [scalar]
     max_dist = (LATENT_SIZE * 1 * 1)
     
-    basic_proto = proto_presence.sum(dim=-1).detach()  # [b, p]
-    _, idx = torch.topk(basic_proto, top_k, dim=1)  # [b, n]
+    basic_proto = proto_presence.sum(dim=-1).detach()  # [b, p] # basic_proto is calculated by summing the proto_presence tensor along the last dimension, resulting in a tensor 
+    # of shape [batch_size, p]. This indicates the number of prototypes present for each example in the batch.
+    _, idx = torch.topk(basic_proto, top_k, dim=1)  # [b, n] #  used to retrieve the indices of the top top_k values from the basic_proto tensor along the second dimension. 
+    #  The resulting idx tensor has shape [batch_size, top_k]. top_k=num slots per class  protopresence
+    # con topk prendo gli indici dei 2 (NUM_SLOTS) prototipi che hanno valori piu alti
     binarized_top_k = torch.zeros_like(basic_proto)
+    # binarized_top_k is initialized as a tensor of zeros with the same shape as basic_proto. Then, the scatter_ function is used 
+    # to set the values at the indices given by idx to 1. This creates a binary mask (binarized_top_k) indicating the presence of the top-k prototypes for each example.
     binarized_top_k.scatter_(1, src=torch.ones_like(basic_proto), index=idx)  # [b, p]
-    inverted_distances, _ = torch.max((max_dist - similarity) * binarized_top_k, dim=1)  # [b]
+    inverted_distances, _ = torch.max((max_dist - similarity) * binarized_top_k, dim=1)  # [b] # The distances are inverted and calculated by subtracting the similarity
+    # tensor from max_dist and then multiplying it with the binarized_top_k mask. This creates a tensor inverted_distances of shape [batch_size], where only the distances corresponding to the top-k prototypes are considered.
+    # The maximum distance for each example is retrieved using torch.max along the second dimension of the inverted distances tensor. This results in a tensor inverted_distances of shape [batch_size].
     cost = torch.mean(max_dist - inverted_distances)
+    # The loss is calculated by taking the mean of max_dist minus inverted_distances.
+    # Finally, the calculated loss (cost) is returned by the function.
     return cost
 
 def maximum(a, b, c): 
@@ -173,12 +183,12 @@ def maximum(a, b, c):
         largest = c 
           
     return largest 
-
+        
 if not os.path.exists('results/'):
     os.makedirs('results/')
 if not os.path.exists('prototypes/'):
     os.makedirs('prototypes/')
-    
+
 for p in num_proto: 
     for s in num_slots: 
         
@@ -241,11 +251,12 @@ for p in num_proto:
             #    X_train_observations = pickle.load(f)
             #X_train_observations = np.array([item for sublist in X_train_observations for item in sublist])
             
-            with open('data/obs_train.pkl', 'rb') as f:
-                X_train_observations = pickle.load(f)
-            X_train_observations = np.array([item for sublist in X_train_observations for item in sublist])
+            #with open('data/obs_train.pkl', 'rb') as f:
+            #    X_train_observations = pickle.load(f)
+            #X_train_observations = np.array([item for sublist in X_train_observations for item in sublist])
 
             X_train = np.array([item for sublist in X_train for item in sublist])
+            print(len(X_train))
             real_actions = np.array([item for sublist in real_actions for item in sublist])
             tensor_x = torch.Tensor(X_train)
             tensor_y = torch.tensor(real_actions, dtype=torch.float32)
@@ -272,10 +283,18 @@ for p in num_proto:
 
             '''
             running_loss = running_loss_mse = running_loss_clst = running_loss_sep = running_loss_l1 =  running_loss_ortho = 0.
+            
             for epoch in range(NUM_EPOCHS):
+
                 model.eval()
                 gumbel_scalar = lambda1(epoch)
-                train_error = evaluate_loader(model, gumbel_scalar, train_loader, mse_loss)
+                    
+                if epoch == 0:
+                    tau = 1
+                elif (epoch + 1) % 8 == 0 and tau > 0.3:
+                    tau = 0.8 * tau   
+                
+                train_error = evaluate_loader(model, gumbel_scalar, train_loader, mse_loss, tau)
                 model.train()
         
                 if train_error < best_error and epoch > NUM_EPOCHS-20:
@@ -291,7 +310,7 @@ for p in num_proto:
                         for i in range(len(X_train)):
                             img = X_train[i]
                             img_tensor = torch.tensor(img, dtype=torch.float32).view(1, -1) # (1, 256)
-                            _, x, _, _ = model(img_tensor.to(DEVICE), gumbel_scalar)
+                            _, x, _, _ = model(img_tensor.to(DEVICE), gumbel_scalar, tau)
                             # x è lo stato s dopo la projection network
                             transformed_x.append(x[0].tolist())
                     transformed_x = np.array(transformed_x)
@@ -312,12 +331,11 @@ for p in num_proto:
                         projected_prototype = X_train[transf_idx.item()]# transformed_x[transf_idx.item()]
                         list_projected_prototype.append(projected_prototype.tolist())
                         
-                        if epoch == NUM_EPOCHS-20-2: 
-                            print("I'm saving prototypes' images in prototypes/ directory...")
-                            prototype_image = X_train_observations[transf_idx.item()]
-                            prototype_image = Image.fromarray(prototype_image, 'RGB')
-                            #prototype_image.save(f'/media/caterina/287CD7D77CD79E3E/cate/prototypes/prototype_{i+1}.png')
-                            prototype_image.save(f'prototypes/prototype{i+1}_myprotonet_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_iter{iter}.png')
+                        #if epoch == NUM_EPOCHS-20-2: 
+                        #    print("I'm saving prototypes' images in prototypes/ directory...")
+                        #    prototype_image = X_train_observations[transf_idx.item()]
+                        #    prototype_image = Image.fromarray(prototype_image, 'RGB')
+                        #    prototype_image.save(f'prototypes/prototype{i+1}_myprotonet_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_iter{iter}.png')
                         
                     trained_prototypes = model.prototypes.clone().detach()
                     # praticamente vado a sostituire i prototipi allenati durante il training con gli stati (dopo la projection_network) che sono più vicini ai prototipi
@@ -345,14 +363,16 @@ for p in num_proto:
                                 print("--- ", name, "---> freezed")
                     first_time=False
                     '''
-                
                 for instances, labels in train_loader:
                     optimizer.zero_grad()
                             
                     instances, labels = instances.to(DEVICE), labels.to(DEVICE)
-                    logits, _, similarity, proto_presence = model(instances, gumbel_scalar)
-                    
-                    loss1 = mse_loss(logits, labels) 
+                    logits, _, similarity, proto_presence = model(instances, gumbel_scalar, tau)
+                
+                        
+                    loss1 = mse_loss(logits, labels) #ok ([-0.0134,  0.4438,  0.0000], ) loss1 = tensor(0.0802,..)
+
+                        
                     # orthogonal loss --> for slots orthogonality: in this way successive slots of a class are assigned to different prototypes
                     orthogonal_loss = torch.Tensor([0]).to(DEVICE)
                     '''
@@ -370,7 +390,6 @@ for p in num_proto:
                             orthogonal_loss += sim
                     orthogonal_loss = orthogonal_loss / (NUM_SLOTS_PER_CLASS * NUM_CLASSES) - 1
                     
-                    
                     labels_p = labels.cpu().numpy().tolist()
                     labels_pp = list()
                     for label in (labels_p):
@@ -382,15 +401,16 @@ for p in num_proto:
                             labels_pp.append(1)
                         else:
                             labels_pp.append(2)
-                    
+                                            
                     proto_presence = proto_presence[labels_pp] # (?) labels_pp deve essere un vettore (batch size, classe) classe = 0,1,2
                     inverted_proto_presence = 1 - proto_presence
                     labels.to(DEVICE)
-                    
+                        
                     clst_loss_val = dist_loss(model, similarity, proto_presence, NUM_SLOTS_PER_CLASS)  
                     sep_loss_val = dist_loss(model, similarity, inverted_proto_presence, NUM_PROTOTYPES - NUM_SLOTS_PER_CLASS) 
                     
-                    prototypes_of_correct_class = proto_presence.sum(dim=-1).detach()
+                    # queste 4 righe da cancellare
+                    prototypes_of_correct_class = proto_presence.sum(dim=-1).detach() # dovrebbe essere size: [num class, num prot]
                     prototypes_of_wrong_class = 1 - prototypes_of_correct_class
                     avg_separation_cost = torch.sum(similarity * prototypes_of_wrong_class, dim=1) / torch.sum(prototypes_of_wrong_class,dim=1)
                     avg_separation_cost = torch.mean(avg_separation_cost)
@@ -438,7 +458,7 @@ for p in num_proto:
             model = MyProtoNet().eval()
             model.load_state_dict(torch.load(MODEL_DIR_ITER))
             model.to(DEVICE)
-            print("Checking for the error... :", evaluate_loader(model, gumbel_scalar, train_loader, mse_loss))
+            print("Checking for the error... :", evaluate_loader(model, gumbel_scalar, train_loader, mse_loss, tau))
     
             reward_arr = []
             all_errors = list()
@@ -461,7 +481,7 @@ for p in num_proto:
                     # perform the action "input_action" found by the policy network
                     ##_, _, _, _, bb_action = ppo.env.step(input_action.cpu().numpy())
                     # bb_action size [3] --> è l'azione della stessa forma dell'output del mio modello (per poterli confrontare)
-                    action, _, _, _ = model(latent_x.to(DEVICE), gumbel_scalar)
+                    action, _, _, _ = model(latent_x.to(DEVICE), gumbel_scalar, tau)
                     # action size [1,3]
                     all_errors.append(mse_loss(torch.tensor(bb_action).to(DEVICE), action[0]).detach().item())
 

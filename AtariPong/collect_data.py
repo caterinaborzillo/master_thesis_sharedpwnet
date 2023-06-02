@@ -264,6 +264,9 @@ if __name__ == "__main__":
         # Stack state . Every state contains 4 time contionusly frames
         # We stack frames like 4 channel image
         state = np.stack((state, state, state, state))
+        img_array = environment.render(mode='rgb_array')
+        images = [img_array, img_array, img_array, img_array]
+        states.append(images)
         total_max_q_val = 0  # Total max q vals
         total_reward = 0  # Total reward for each episode
         total_loss = 0  # Total loss for each episode
@@ -283,7 +286,9 @@ if __name__ == "__main__":
             # temp = temp.tolist()            
             # all_states.append(temp)
             img_array = environment.render(mode='rgb_array')
-            states.append(img_array)
+            images = [img_array]+images[1:]
+            states.append(images)
+
       
             next_state = agent.preProcess(next_state)  # Process image
 

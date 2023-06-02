@@ -60,7 +60,8 @@ reward_arr = list()
 
 for ep in tqdm(range(NUM_EPISODES)):
 
-	next_state = ppo.env.reset()
+	self_state = ppo._to_tensor(env.reset()) 
+	# next_state = ppo.env.reset()
 	rew = 0
 	done = False
 	count = 0
@@ -97,7 +98,7 @@ for ep in tqdm(range(NUM_EPISODES)):
 		# ppo.env.render()
 
 	reward_arr.append(rew)
-	print(count)
+	#print(count)
 
 	# Store the transition
 	states.append(ep_states) # prototypes
@@ -113,8 +114,8 @@ with open('data/X_train.pkl', 'wb') as f:
 	pickle.dump(X_train, f)
 with open('data/real_actions.pkl', 'wb') as f:
 	pickle.dump(real_actions, f)
-with open('data/obs_train.pkl', 'wb') as f:
- 	pickle.dump(states, f)
+#with open('data/obs_train.pkl', 'wb') as f:
+# 	pickle.dump(states, f)
 
 #with open('data/saved_materials.pkl', 'wb') as f:
 #	pickle.dump(saved_materials, f)
