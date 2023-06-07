@@ -10,7 +10,7 @@ from collections import Counter
 if not os.path.exists('data/'):
     os.mkdir('data/')
 
-n_episodes = 5
+n_episodes = 30
 name='LunarLander_TWO.pth'
 
 X_train = list()
