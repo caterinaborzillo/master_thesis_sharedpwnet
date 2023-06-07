@@ -114,8 +114,8 @@ with open('data/X_train.pkl', 'wb') as f:
 	pickle.dump(X_train, f)
 with open('data/real_actions.pkl', 'wb') as f:
 	pickle.dump(real_actions, f)
-#with open('data/obs_train.pkl', 'wb') as f:
-# 	pickle.dump(states, f)
+with open('data/obs_train.pkl', 'wb') as f:
+ 	pickle.dump(states, f)
 
 #with open('data/saved_materials.pkl', 'wb') as f:
 #	pickle.dump(saved_materials, f)

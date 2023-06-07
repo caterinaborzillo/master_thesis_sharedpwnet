@@ -12,8 +12,8 @@ from PIL import Image
 from torch.utils.data import TensorDataset, DataLoader
 from argparse import ArgumentParser
 from os.path import join
-from games.carracing import RacingNet, CarRacing
-from ppo import PPO
+from TD3 import TD3
+
 import os
 from torch.distributions import Beta
 from sklearn.neighbors import KNeighborsRegressor
@@ -21,19 +21,36 @@ from random import sample
 from tqdm import tqdm
 from time import sleep
 
-
 NUM_ITERATIONS = 15
 NUM_EPOCHS = 100
-NUM_CLASSES = 3
+NUM_CLASSES = 4
+NUM_PROTOTYPES = 8
 
-CONFIG_FILE = "config.toml"
-LATENT_SIZE = 256
+LATENT_SIZE = 300
+BATCH_SIZE = 64
+DEVICE = 'cpu'
 PROTOTYPE_SIZE = 50
-BATCH_SIZE = 32
-DEVICE = 'cuda'
+MAX_SAMPLES = 100000
 delay_ms = 0
-NUM_PROTOTYPES = 4 # per cambiare questo dato dovrei modificare l'ultimo linear layer (pre-assigned) W'
 SIMULATION_EPOCHS = 30
+
+
+env_name = "BipedalWalker-v3"
+random_seed = 0
+n_episodes = 30
+lr = 0.002
+max_timesteps = 2000
+#filename = "TD3_{}_{}".format(env_name, random_seed)
+#filename += '_solved'
+filename = "TD3_BipedalWalker-v2_0_solved"
+#directory = "./preTrained/{}".format(env_name)
+directory = "./preTrained/BipedalWalker-v2/ONE"
+env = gym.make(env_name, hardcore=False)
+state_dim = env.observation_space.shape[0]
+action_dim = env.action_space.shape[0]
+max_action = float(env.action_space.high[0])
+policy = TD3(lr, state_dim, action_dim, max_action)
+policy.load_actor(directory, filename)
 
 
 class PPPNet(nn.Module):
@@ -51,13 +68,18 @@ class PPPNet(nn.Module):
         self.linear = nn.Linear(NUM_PROTOTYPES, NUM_CLASSES, bias=False) 
         self.__make_linear_weights()
         self.tanh = nn.Tanh()
-        self.relu = nn.ReLU()
         
     def __make_linear_weights(self):
-        custom_weight_matrix = torch.tensor([[-1., 0., 0.], 
-                                             [ 1., 0., 0.],
-                                             [ 0., 1., 0.], 
-                                             [ 0., 0., 1.]])
+        custom_weight_matrix = torch.tensor([
+                                             [ 1., 0., 0., 0.], 
+                                             [ -1., 0., 0., 0.], 
+                                             [ 0., 1., 0., 0.], 
+                                             [ 0., -1., 0., 0.], 
+                                             [ 0., 0., 1., 0.],
+                                             [ 0., 0., -1., 0.], 
+                                             [ 0., 0., 0., 1.], 
+                                             [ 0., 0., 0., -1.], 
+                                             ])
         self.linear.weight.data.copy_(custom_weight_matrix.T)   
         
     def __proto_layer_l2(self, x):
@@ -71,10 +93,7 @@ class PPPNet(nn.Module):
         return act, l2s
     
     def __output_act_func(self, p_acts):        
-        p_acts.T[0] = self.tanh(p_acts.T[0])  # steering between -1 -> +1
-        p_acts.T[1] = self.relu(p_acts.T[1])  # acc > 0
-        p_acts.T[2] = self.relu(p_acts.T[2])  # brake > 0
-        return p_acts
+        return self.tanh(p_acts)
     
     def forward(self, x): 
         x = self.main(x)
@@ -84,26 +103,23 @@ class PPPNet(nn.Module):
         return final_outputs, x
 
 
-def evaluate_loader(model, loader, loss):
+def evaluate_loader(model, loader, mse_loss):
     model.eval()
-    total_error = 0
+    total_loss = 0
     total = 0
+    
     with torch.no_grad():
         for i, data in enumerate(loader):
             imgs, labels = data
             imgs, labels = imgs.to(DEVICE), labels.to(DEVICE)
-            logits, _ = model(imgs)
-            current_loss = loss(logits, labels)
-            total_error += current_loss.item()
-            total += len(imgs)
+            outputs, _ = model(imgs)
+            loss = mse_loss(outputs, labels)
+            total += len(outputs)
+            total_loss += loss.item()
     model.train()
-    return total_error / total
+    return total_loss / len(loader)
 
 
-def load_config():
-    with open(CONFIG_FILE, "r") as f:
-        config = toml.load(f)
-    return config
 
 
 def clust_loss(x, y, model, criterion):
@@ -164,42 +180,14 @@ for iter in range(NUM_ITERATIONS):
         os.makedirs(prototype_path)
                 
     writer = SummaryWriter(f"runs/pwnet_star_star/Iteration_{iter}")
+
+    X_train = np.load('data/X_train.npy')
+    a_train = np.load('data/a_train.npy')
+    obs_train = np.load('data/obs_train.npy')
     
-    ## Load Pre-Trained Agent & Simulated Data
-    cfg = load_config()
-    env = CarRacing(frame_skip=0, frame_stack=4,)
-    net = RacingNet(env.observation_space.shape, env.action_space.shape)
-    ppo = PPO(
-        env,
-        net,
-        lr=cfg["lr"],
-        gamma=cfg["gamma"],
-        batch_size=cfg["batch_size"],
-        gae_lambda=cfg["gae_lambda"],
-        clip=cfg["clip"],
-        value_coef=cfg["value_coef"],
-        entropy_coef=cfg["entropy_coef"],
-        epochs_per_step=cfg["epochs_per_step"],
-        num_steps=cfg["num_steps"],
-        horizon=cfg["horizon"],
-        save_dir=cfg["save_dir"],
-        save_interval=cfg["save_interval"],
-    )
-    ppo.load("weights/agent_weights.pt")
-
-    with open('data/X_train.pkl', 'rb') as f:
-        X_train = pickle.load(f)
-    with open('data/real_actions.pkl', 'rb') as f:
-        real_actions = pickle.load(f)
-    with open('data/obs_train.pkl', 'rb') as f:
-        X_train_observations = pickle.load(f)
-    X_train_observations = np.array([item for sublist in X_train_observations for item in sublist])
-
-    X_train = np.array([item for sublist in X_train for item in sublist])
-    real_actions = np.array([item for sublist in real_actions for item in sublist])
     tensor_x = torch.Tensor(X_train)
-    tensor_y = torch.tensor(real_actions, dtype=torch.float32)
-    train_dataset = TensorDataset(tensor_x.to(DEVICE), tensor_y.to(DEVICE))
+    tensor_y = torch.tensor(a_train, dtype=torch.float32)
+    train_dataset = TensorDataset(tensor_x, tensor_y)
     train_loader = DataLoader(train_dataset, shuffle=True, batch_size=BATCH_SIZE)
 
 
@@ -247,7 +235,7 @@ for iter in range(NUM_ITERATIONS):
             trans_x = list()
             model.eval()
             with torch.no_grad():
-                for i in tqdm(range(len(X_train))):
+                for i in range(len(X_train)):
                     img = X_train[i]
                     # x è lo stato s dopo il f_enc (projection network)
                     img_tensor = torch.tensor(img, dtype=torch.float32).view(1, -1)
@@ -269,7 +257,7 @@ for iter in range(NUM_ITERATIONS):
                 
                 if epoch == NUM_EPOCHS-4:
                     print("I'm saving prototypes' images in prototypes/ directory...")
-                    prototype_image = X_train_observations[nn_idx.item()]
+                    prototype_image = obs_train[nn_idx.item()]
                     prototype_image = Image.fromarray(prototype_image, 'RGB')
                     p_path = prototype_path+f'p{i+1}.png'
                     prototype_image.save(p_path)
@@ -300,6 +288,7 @@ for iter in range(NUM_ITERATIONS):
         print("Epoch:", epoch, "Running Loss:", running_loss / len(train_loader), "Train error:", train_error)
         with open('results/pwnet_star_star_results.txt', 'a') as f:
             f.write(f"Epoch: {epoch}, Running Loss: {running_loss / len(train_loader)}, Train error: {train_error}\n")
+        
         writer.add_scalar("Running_loss", running_loss/len(train_loader), epoch)
         writer.add_scalar("Train_error", train_error, epoch)
         running_loss = 0.
@@ -308,56 +297,45 @@ for iter in range(NUM_ITERATIONS):
         
 
     states, actions, rewards, log_probs, values, dones, X_train = [], [], [], [], [], [], []
-    self_state = ppo._to_tensor(env.reset())
 
     # Wapper model with learned weights
     model.eval()
-    reward_arr = []
+    total_reward = list()
     all_errors = list()
-    for i in tqdm(range(SIMULATION_EPOCHS)):
-        state = ppo._to_tensor(env.reset())
-        count = 0
-        rew = 0
-        model.eval()
+    for ep in tqdm(range(SIMULATION_EPOCHS)):
+        ep_reward = 0
+        ep_errors = 0
+        state = env.reset()
+        for t in range(max_timesteps):
+            bb_action, x = policy.select_action(state)
+            A, _ = model( torch.tensor(x, dtype=torch.float32).view(1, -1) )
+            state, reward, done, _ = env.step(A.detach().numpy()[0])
+            ep_reward += reward
+            ep_errors += mse_loss( torch.tensor(bb_action), A[0]).detach().item()
 
-        for t in range(10000):
-            # Get black box action
-            value, alpha, beta, latent_x = ppo.net(state)
-            value, alpha, beta = value.squeeze(0), alpha.squeeze(0), beta.squeeze(0)
-            policy = Beta(alpha, beta)
-            input_action = policy.mean.detach()
-            _, _, _, _, bb_action = ppo.env.step(input_action.cpu().numpy())
-
-            action = model(latent_x.to(DEVICE))
-            all_errors.append(  mse_loss(bb_action.to(DEVICE), action[0]).detach().item()  )
-
-            state, reward, done, _, _ = ppo.env.step(action[0][0].detach().cpu().numpy(), real_action=True)
-            #state, reward, done, _, _ = ppo.env.step(action[0].detach().cpu().numpy(), real_action=True)
-
-            state = ppo._to_tensor(state)
-            rew += reward
-            count += 1
-            
             if done:
                 break
 
-        reward_arr.append(rew)
-
-    data_rewards.append(  sum(reward_arr) / SIMULATION_EPOCHS  )
+        print('Episode: {}\tReward: {}'.format(ep, int(ep_reward)))
+        total_reward.append( ep_reward )
+        all_errors.append( ep_errors )
+        ep_reward = 0
+        
+    env.close()  
+    data_rewards.append(  sum(total_reward) / SIMULATION_EPOCHS  )
     data_errors.append(  sum(all_errors) / SIMULATION_EPOCHS )
-    print("Reward: ", sum(reward_arr) / SIMULATION_EPOCHS)
+    print("Reward: ", sum(total_reward) / SIMULATION_EPOCHS)
     print("MSE: ", sum(all_errors) / SIMULATION_EPOCHS )
     
     # log the reward and MAE
-    writer.add_scalar("Reward", sum(reward_arr) / SIMULATION_EPOCHS, iter)
+    writer.add_scalar("Reward", sum(total_reward) / SIMULATION_EPOCHS, iter)
     writer.add_scalar("MSE", sum(all_errors) / SIMULATION_EPOCHS, iter)
     
     with open('results/pwnet_star_star_results.txt', 'a') as f:
-        f.write(f"Reward: {sum(reward_arr) / SIMULATION_EPOCHS}, MSE: {sum(all_errors) / SIMULATION_EPOCHS}\n")
+        f.write(f"Reward: {sum(total_reward) / SIMULATION_EPOCHS}, MSE: {sum(all_errors) / SIMULATION_EPOCHS}\n")
     
 data_errors = np.array(data_errors)
 data_rewards = np.array(data_rewards)
-
 
 print(" ")
 print("===== Data MAE:")
@@ -379,3 +357,4 @@ with open('results/pwnet_star_star_results.txt', 'a') as f:
     f.write(f"Rewards:  {data_rewards}\n")
     f.write(f"Mean: {data_rewards.mean()}\n")
     f.write(f"Standard Error: {data_rewards.std() / np.sqrt(NUM_ITERATIONS)}\n")
+

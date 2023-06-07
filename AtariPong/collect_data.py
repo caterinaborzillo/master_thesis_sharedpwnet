@@ -23,7 +23,9 @@ TRAIN_MODEL = False  # Train model while playing (Make it False when testing a m
 LOAD_MODEL_FROM_FILE = True  # Load model from file
 LOAD_FILE_EPISODE = 900  # Load Xth episode from file
 BATCH_SIZE = 64  # Minibatch size that select randomly from mem for train nets
+
 MAX_EPISODE = 100000  # Max episode
+
 MAX_STEP = 100000  # Max step size for one episode
 NUM_EPISODES = 30
 MAX_MEMORY_LEN = 50000  # Max memory len
@@ -264,9 +266,11 @@ if __name__ == "__main__":
         # Stack state . Every state contains 4 time contionusly frames
         # We stack frames like 4 channel image
         state = np.stack((state, state, state, state))
+        
         img_array = environment.render(mode='rgb_array')
         images = [img_array, img_array, img_array, img_array]
-        states.append(images)
+        #states.append(images)
+        
         total_max_q_val = 0  # Total max q vals
         total_reward = 0  # Total reward for each episode
         total_loss = 0  # Total loss for each episode
@@ -357,6 +361,8 @@ if __name__ == "__main__":
       pickle.dump(all_x, f)
     with open('data/a_train.pkl', 'wb') as f:
       pickle.dump(all_actions, f)
+    
+    # to save images of possible prototypes  
     with open('data/obs_train.pkl', 'wb') as f:
        pickle.dump(states, f)
 

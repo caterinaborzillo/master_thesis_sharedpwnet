@@ -34,19 +34,17 @@ from time import sleep
 
 from collections import deque
 
-
-MODEL_DIR = 'weights/pw_net.pth'
+NUM_ITERATIONS = 15
+NUM_EPOCHS = 100
 NUM_CLASSES = 6
+
 LATENT_SIZE = 1536
 PROTOTYPE_SIZE = 50
 BATCH_SIZE = 32
-NUM_EPOCHS = 10
 DEVICE = 'cpu'
 delay_ms = 0
 NUM_PROTOTYPES = 6
 SIMULATION_EPOCHS = 30
-NUM_ITERATIONS = 3
-
 
 
 ENVIRONMENT = "PongDeterministic-v4"
@@ -376,12 +374,16 @@ with open('results/pwnet_results.txt', 'a') as f:
     f.write("--------------------------------------------------------------------------------------------------------------------------\n")
     f.write(f"model_pwnet\n")
     f.write(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}\n")
-    
+
+MODEL_DIR = 'weights/pwnet'
+if not os.path.exists(MODEL_DIR):
+    os.makedirs(MODEL_DIR)
+
 #### Start Collecting Data To Form Final Mean and Standard Error Results
 data_rewards = list()
-data_errors = list()
+data_accuracy = list()
 
-for _ in range(NUM_ITERATIONS):
+for iter in range(NUM_ITERATIONS):
 
     with open('results/pwnet_results.txt', 'a') as f:
         f.write(f"ITERATION {iter}: \n")
@@ -457,17 +459,15 @@ for _ in range(NUM_ITERATIONS):
     # Freeze Linear Layer to make more interpretable
     model.linear.weight.requires_grad = False
 
-
+    running_loss = 0
     for epoch in range(NUM_EPOCHS):
-        
-        running_loss = 0
-            
+                
         model.eval()
         current_acc = evaluate_loader(model, train_loader, cce_loss)
         model.train()
         
         if current_acc > best_acc:
-            torch.save(  model.state_dict(), 'weights/pw_net.pth'  )
+            torch.save(  model.state_dict(), MODEL_DIR_ITER)
             best_acc = current_acc
         
         for instances, labels in train_loader:
@@ -486,12 +486,13 @@ for _ in range(NUM_ITERATIONS):
             
             running_loss += loss.item()
         
-        print("Epoch:", epoch, "Running Loss:", running_loss / len(train_loader), "Current accuracy :", current_acc)
+        print("Epoch:", epoch, "Running Loss:", running_loss / len(train_loader), "Current Accuracy :", current_acc)
         with open('results/pwnet_results.txt', 'a') as f:
-            f.write(f"Epoch: {epoch}, Loss: {running_loss / len(train_loader)}, Current_accuracy: {current_acc}\n")
+            f.write(f"Epoch: {epoch}, Running Loss: {running_loss / len(train_loader)}, Current Accuracy: {current_acc}\n")
             
         writer.add_scalar("Running_loss", running_loss/len(train_loader), epoch)
         writer.add_scalar("Current_accuracy", current_acc, epoch)
+        running_loss = 0
         
         scheduler.step()
 
@@ -501,14 +502,14 @@ for _ in range(NUM_ITERATIONS):
 
     # Wapper model with learned weights
     model = PWNet().eval()
-    model.load_state_dict(torch.load(MODEL_DIR))
+    model.load_state_dict(torch.load(MODEL_DIR_ITER))
     model.to(DEVICE)
     # Projection
-    print("Final Acc.:", evaluate_loader(model, train_loader, cce_loss))
+    print("Final Accuracy... :", evaluate_loader(model, train_loader, cce_loss))
 
 
     all_rewards = list()
-    all_errors = list()
+    all_acc = list()
     for episode in range(SIMULATION_EPOCHS):
 
         startTime = time.time()  # Keep time
@@ -523,7 +524,7 @@ for _ in range(NUM_ITERATIONS):
         total_max_q_val = 0  # Total max q vals
         total_reward = 0     # Total reward for each episode
         total_loss = 0       # Total loss for each episode
-        total_error = list()
+        total_acc = list()
 
         for step in range(MAX_STEP):
 
@@ -555,34 +556,34 @@ for _ in range(NUM_ITERATIONS):
             state = next_state  # Update state
 
             total_reward += reward
-            total_error.append( agent_action == action )
+            total_acc.append( agent_action == action )
 
             if done:
                 all_rewards.append(total_reward)
-                all_errors.append( sum(total_error) / len(total_error ) )
+                all_acc.append( sum(total_acc) / len(total_acc ) )
                 break
 
     data_rewards.append(  sum(all_rewards) / SIMULATION_EPOCHS  )
-    data_errors.append(  sum(all_errors) / SIMULATION_EPOCHS  )
-    print("Rewards: ", sum(all_rewards) / SIMULATION_EPOCHS)
-    print("Accuracy: ", sum(all_errors) / SIMULATION_EPOCHS )
+    data_accuracy.append(  sum(all_acc) / SIMULATION_EPOCHS  )
+    print("Reward: ", sum(all_rewards) / SIMULATION_EPOCHS)
+    print("Accuracy: ", sum(all_acc) / SIMULATION_EPOCHS )
 
-    # log the reward and MAE
-    writer.add_scalar("Rewards", sum(all_rewards) / SIMULATION_EPOCHS, iter)
-    writer.add_scalar("Accuracy", sum(all_errors) / SIMULATION_EPOCHS, iter)
+    # log the reward and Acc
+    writer.add_scalar("Reward", sum(all_rewards) / SIMULATION_EPOCHS, iter)
+    writer.add_scalar("Accuracy", sum(all_acc) / SIMULATION_EPOCHS, iter)
 
     with open('results/pwnet_results.txt', 'a') as f:
-        f.write(f"Rewards: {sum(all_rewards) / SIMULATION_EPOCHS}, Accuracy: {sum(all_errors) / SIMULATION_EPOCHS}\n")
+        f.write(f"Reward: {sum(all_rewards) / SIMULATION_EPOCHS}, Accuracy: {sum(all_acc) / SIMULATION_EPOCHS}\n")
         
-data_errors = np.array(data_errors)
+data_accuracy = np.array(data_accuracy)
 data_rewards = np.array(data_rewards)
 
 
 print(" ")
 print("===== Data Accuracy:")
-print("Accuracy:", data_errors)
-print("Mean:", data_errors.mean())
-print("Standard Error:", data_errors.std() / np.sqrt(NUM_ITERATIONS)  )
+print("Accuracy:", data_accuracy)
+print("Mean:", data_accuracy.mean())
+print("Standard Error:", data_accuracy.std() / np.sqrt(NUM_ITERATIONS)  )
 print(" ")
 print("===== Data Reward:")
 print("Rewards:", data_rewards)
@@ -591,9 +592,9 @@ print("Standard Error:", data_rewards.std() / np.sqrt(NUM_ITERATIONS)  )
 
 with open('results/pwnet_results.txt', 'a') as f:
     f.write("\n===== Data Accuracy:\n")
-    f.write(f"Accuracy: {data_errors}\n")
-    f.write(f"Mean: {data_errors.mean()}\n")
-    f.write(f"Standard Error: {data_errors.std() / np.sqrt(NUM_ITERATIONS)}\n")
+    f.write(f"Accuracy: {data_accuracy}\n")
+    f.write(f"Mean: {data_accuracy.mean()}\n")
+    f.write(f"Standard Error: {data_accuracy.std() / np.sqrt(NUM_ITERATIONS)}\n")
     f.write("\n===== Data Reward:\n")
     f.write(f"Rewards:  {data_rewards}\n")
     f.write(f"Mean: {data_rewards.mean()}\n")

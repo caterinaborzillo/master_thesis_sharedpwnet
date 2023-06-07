@@ -35,16 +35,17 @@ from time import sleep
 from collections import deque
 
 
-
+NUM_ITERATIONS = 15
+NUM_EPOCHS = 100
 NUM_CLASSES = 6
+
 LATENT_SIZE = 1536
 PROTOTYPE_SIZE = 50
 BATCH_SIZE = 32
-NUM_EPOCHS = 50
 delay_ms = 0
 NUM_PROTOTYPES = 6
 SIMULATION_EPOCHS = 30
-NUM_ITERATIONS = 3
+
 
 ENVIRONMENT = "PongDeterministic-v4"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -405,8 +406,6 @@ def sep_loss(x, y, model, criterion):
 
 if not os.path.exists('results/'):
     os.makedirs('results/')
-if not os.path.exists('prototypes/'):
-    os.makedirs('prototypes/')
 
 with open('results/pwnet_star_star_results.txt', 'a') as f:
     f.write("--------------------------------------------------------------------------------------------------------------------------\n")
@@ -414,7 +413,7 @@ with open('results/pwnet_star_star_results.txt', 'a') as f:
     f.write(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}\n")
 
 data_rewards = list()
-data_errors = list()
+data_accuracy = list()
 
 MODEL_DIR = 'weights/pwnet_star_star'
 if not os.path.exists(MODEL_DIR):
@@ -426,7 +425,11 @@ for iter in range(NUM_ITERATIONS):
         f.write(f"ITERATION {iter}: \n")
 
     MODEL_DIR_ITER = f'weights/pwnet_star_star/iter_{iter}.pth'
-    
+
+    prototype_path = f'prototypes/pwnet_star_star/iter_{iter}/'
+    if not os.path.exists(prototype_path):
+        os.makedirs(prototype_path)
+                
     writer = SummaryWriter(f"runs/pwnet_star_star/Iteration_{iter}")
  
     environment = gym.make(ENVIRONMENT) # , render_mode='human')  # Get env
@@ -528,11 +531,10 @@ for iter in range(NUM_ITERATIONS):
                     print("I'm saving prototypes' images in prototypes/ directory...")
                     prototype_image = X_train_observations[nn_idx.item()]
                     prototype_image = Image.fromarray(prototype_image, 'RGB')
-                    prototype_image.save(f'prototypes/prototype{i+1}_pwnet_star_star_iter{iter}.png')
-                    
+                    p_path = prototype_path+f'p{i+1}.png'
+                    prototype_image.save(p_path)
+                                                
             trained_prototypes = model.prototypes.clone().detach()
-            # praticamente vado a sostituire i prototipi allenati durante il training con gli stati (dopo f_enc/projection_network) che sono più vicini ai prototipi
-            # è come se facessi una proiezione dei prototipi (allenati da zero) sugli stati (veri stati nel training set)
             tensor_proj_prototypes = torch.tensor(nn_xs, dtype=torch.float32)
             #model.prototypes = torch.nn.Parameter(tensor_proj_prototypes.to(DEVICE))
             with torch.no_grad():
@@ -556,12 +558,12 @@ for iter in range(NUM_ITERATIONS):
             optimizer.step()
             running_loss += loss.item()
             
-        print("Epoch:", epoch, "Loss:", running_loss / len(train_loader), "Current_accuracy:", current_acc)
+        print("Epoch:", epoch, "Running Loss:", running_loss / len(train_loader), "Current Accuracy:", current_acc)
         with open('results/pwnet_star_star_results.txt', 'a') as f:
-            f.write(f"Epoch: {epoch}, Loss: {running_loss / len(train_loader)}, Current accuracy: {current_acc}\n")
+            f.write(f"Epoch: {epoch}, Running Loss: {running_loss / len(train_loader)}, Current Accuracy: {current_acc}\n")
         writer.add_scalar("Running_loss", running_loss/len(train_loader), epoch)
-        writer.add_scalar("Current accuracy", current_acc, epoch)
-        
+        writer.add_scalar("Current_accuracy", current_acc, epoch)
+        running_loss = 0.
         scheduler.step()
         
 
@@ -570,7 +572,7 @@ for iter in range(NUM_ITERATIONS):
     model.to(DEVICE)
     # Wapper model with learned weights
     model.eval()
-    all_errors = list()
+    all_acc = list()
     all_rewards = list()
     for episode in range(SIMULATION_EPOCHS):
 
@@ -586,7 +588,7 @@ for iter in range(NUM_ITERATIONS):
         total_max_q_val = 0  # Total max q vals
         total_reward = 0     # Total reward for each episode
         total_loss = 0       # Total loss for each episode
-        total_error = list()
+        total_acc = list()
         for step in range(MAX_STEP):
 
 
@@ -612,39 +614,35 @@ for iter in range(NUM_ITERATIONS):
             state = next_state  # Update state
 
             total_reward += reward
-            total_error.append( agent_action == action )
+            total_acc.append( agent_action == action )
 
             if done:
                 all_rewards.append(total_reward)
-                all_errors.append( sum(total_error) / len(total_error ) )
+                all_acc.append( sum(total_acc) / len(total_acc ) )
                 break
 
 
     data_rewards.append(  sum(all_rewards) / SIMULATION_EPOCHS  )
-    data_errors.append(  sum(all_errors) / SIMULATION_EPOCHS )
-    print(" ")
-    print("==========================")
-    print("Rewards:", data_rewards)
-    print("Accuracy:", data_errors)
-    print("==========================")
-    print(" ")
+    data_accuracy.append(  sum(all_acc) / SIMULATION_EPOCHS )
+    print("Reward:", data_rewards)
+    print("Accuracy:", data_accuracy)
     
     # log the reward and Acc
     writer.add_scalar("Reward", sum(all_rewards) / SIMULATION_EPOCHS, iter)
-    writer.add_scalar("Accuracy", sum(all_errors) / SIMULATION_EPOCHS, iter)
+    writer.add_scalar("Accuracy", sum(all_acc) / SIMULATION_EPOCHS, iter)
     
     with open('results/pwnet_star_star_results.txt', 'a') as f:
-        f.write(f"Data reward: {sum(all_rewards) / SIMULATION_EPOCHS}, Accuracy: {sum(all_errors) / SIMULATION_EPOCHS}\n")
+        f.write(f"Reward: {sum(all_rewards) / SIMULATION_EPOCHS}, Accuracy: {sum(all_acc) / SIMULATION_EPOCHS}\n")
     
-data_errors = np.array(data_errors)
+data_accuracy = np.array(data_accuracy)
 data_rewards = np.array(data_rewards)
 
 
 print(" ")
 print("===== Data Accuracy:")
-print("Accuracy:", data_errors)
-print("Mean:", data_errors.mean())
-print("Standard Error:", data_errors.std() / np.sqrt(NUM_ITERATIONS)  )
+print("Accuracy:", data_accuracy)
+print("Mean:", data_accuracy.mean())
+print("Standard Error:", data_accuracy.std() / np.sqrt(NUM_ITERATIONS)  )
 print(" ")
 print("===== Data Reward:")
 print("Rewards:", data_rewards)
@@ -653,9 +651,9 @@ print("Standard Error:", data_rewards.std() / np.sqrt(NUM_ITERATIONS)  )
 
 with open('results/pwnet_star_star_results.txt', 'a') as f:
     f.write("\n===== Data Accuracy:\n")
-    f.write(f"Accuracy:  {data_errors}\n")
-    f.write(f"Mean: {data_errors.mean()}\n")
-    f.write(f"Standard Error: {data_errors.std() / np.sqrt(NUM_ITERATIONS)}\n")
+    f.write(f"Accuracy:  {data_accuracy}\n")
+    f.write(f"Mean: {data_accuracy.mean()}\n")
+    f.write(f"Standard Error: {data_accuracy.std() / np.sqrt(NUM_ITERATIONS)}\n")
     f.write("\n===== Data Reward:\n")
     f.write(f"Rewards:  {data_rewards}\n")
     f.write(f"Mean: {data_rewards.mean()}\n")

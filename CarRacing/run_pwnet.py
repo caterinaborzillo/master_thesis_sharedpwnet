@@ -18,13 +18,14 @@ from torch.distributions import Beta
 from tqdm import tqdm
 
 
-NUM_ITERATIONS = 5
-CONFIG_FILE = "config.toml"
+NUM_ITERATIONS = 15
+NUM_EPOCHS = 100
 NUM_CLASSES = 3
+
+CONFIG_FILE = "config.toml"
 LATENT_SIZE = 256
 PROTOTYPE_SIZE = 50
 BATCH_SIZE = 32
-NUM_EPOCHS = 10
 DEVICE = 'cpu'
 delay_ms = 0
 NUM_PROTOTYPES = 4
@@ -239,9 +240,6 @@ for iter in range(NUM_ITERATIONS): # 5
     train_loader = DataLoader(train_dataset, shuffle=True, batch_size=BATCH_SIZE)
 
 #------------------------------PROTOTYPES MANUALLY DEFINED--------------------------------------------------------------------------------------------------
-    # Human defined Prototypes for interpretable model (these were gotten manually earlier)
-    # A clustering analysis could be done to help guide the search, or they can be manually chosen.
-    # Lastly, they could also be learned as pwnet* shows in the comparitive tests
     p_idxs = np.array([10582, 20116, 4616, 2659]) 
     nn_human_x = X_train[p_idxs.flatten()]
     nn_human_actions = real_actions[p_idxs.flatten()]
@@ -259,16 +257,15 @@ for iter in range(NUM_ITERATIONS): # 5
     # Freeze Linear Layer W'
     model.linear.weight.requires_grad = False
 
-
+    running_loss = 0
     for epoch in range(NUM_EPOCHS): # 10
         
-        running_loss = 0
         model.eval()
         train_error = evaluate_loader(model, train_loader, mse_loss)
         model.train()
         
         if train_error < best_error:
-            torch.save(model.state_dict(), 'weights/pw_net.pth')
+            torch.save(model.state_dict(), MODEL_DIR_ITER)
             best_error = train_error
         
         for instances, labels in train_loader:
@@ -283,9 +280,9 @@ for iter in range(NUM_ITERATIONS): # 5
             optimizer.step()
             running_loss += loss.item()
                     
-        print("Epoch:", epoch, "Loss:", running_loss / len(train_loader), "Train_error:", train_error)
+        print("Epoch:", epoch, "Running Loss:", running_loss / len(train_loader), "Train error:", train_error)
         with open('results/pwnet_results.txt', 'a') as f:
-            f.write(f"Epoch: {epoch}, Loss: {running_loss / len(train_loader)}, Train_error: {train_error}\n")
+            f.write(f"Epoch: {epoch}, Running Loss: {running_loss / len(train_loader)}, Train error: {train_error}\n")
             
         writer.add_scalar("Running_loss", running_loss/len(train_loader), epoch)
         writer.add_scalar("Train_error", train_error, epoch)
@@ -298,8 +295,9 @@ for iter in range(NUM_ITERATIONS): # 5
     # Wrapper model with learned weights
     model = PWNet().eval()
     model.load_state_dict(torch.load(MODEL_DIR))
-    print("Sanity Check: MSE Eval:", evaluate_loader(model, train_loader, mse_loss))
-
+    #print("Sanity Check MSE Eval:", evaluate_loader(model, train_loader, mse_loss))
+    print("Checking for the error...", evaluate_loader(model, train_loader, mse_loss))
+    
     reward_arr = []
     all_errors = list()
 
@@ -335,22 +333,23 @@ for iter in range(NUM_ITERATIONS): # 5
 
     data_rewards.append(  sum(reward_arr) / SIMULATION_EPOCHS  )
     data_errors.append(  sum(all_errors) / SIMULATION_EPOCHS )
-    print("Data reward: ", sum(reward_arr) / SIMULATION_EPOCHS)
-    print("Data error: ", sum(all_errors) / SIMULATION_EPOCHS )
+    print("Reward: ", sum(reward_arr) / SIMULATION_EPOCHS)
+    print("MSE: ", sum(all_errors) / SIMULATION_EPOCHS )
 
     # log the reward and MAE
     writer.add_scalar("Reward", sum(reward_arr) / SIMULATION_EPOCHS, iter)
-    writer.add_scalar("MAE", sum(all_errors) / SIMULATION_EPOCHS, iter)
-
+    writer.add_scalar("MSE", sum(all_errors) / SIMULATION_EPOCHS, iter)
+    running_loss = 0 
+    
     with open('results/pwnet_results.txt', 'a') as f:
-        f.write(f"Data reward: {sum(reward_arr) / SIMULATION_EPOCHS}, Data error: {sum(all_errors) / SIMULATION_EPOCHS}\n")
+        f.write(f"Reward: {sum(reward_arr) / SIMULATION_EPOCHS}, MSE: {sum(all_errors) / SIMULATION_EPOCHS}\n")
         
 data_errors = np.array(data_errors)
 data_rewards = np.array(data_rewards)
 
 print(" ")
 print("===== Data MAE:")
-print("Errors:", data_errors)
+print("MSE:", data_errors)
 print("Mean:", data_errors.mean())
 print("Standard Error:", data_errors.std() / np.sqrt(NUM_ITERATIONS)  )
 print(" ")
@@ -361,7 +360,7 @@ print("Standard Error:", data_rewards.std() / np.sqrt(NUM_ITERATIONS)  )
 
 with open('results/pwnet_results.txt', 'a') as f:
     f.write("\n===== Data MAE:\n")
-    f.write(f"Errors: {data_errors}\n")
+    f.write(f"MSE: {data_errors}\n")
     f.write(f"Mean: {data_errors.mean()}\n")
     f.write(f"Standard Error: {data_errors.std() / np.sqrt(NUM_ITERATIONS)}\n")
     f.write("\n===== Data Reward:\n")

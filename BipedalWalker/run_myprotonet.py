@@ -10,21 +10,22 @@ from torch.utils.tensorboard import SummaryWriter
 
 from copy import deepcopy
 from PIL import Image
+
+from TD3 import TD3
+
 from torch.utils.data import TensorDataset, DataLoader
 from torch.nn.functional import gumbel_softmax, cosine_similarity
 from argparse import ArgumentParser
 import os
 from os.path import join
 from itertools import combinations
-from games.carracing import RacingNet, CarRacing
-from ppo import PPO
 from torch.distributions import Beta
 from tqdm import tqdm
 from sklearn.neighbors import KNeighborsRegressor
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("n_proto", type=int, default = 6, help="Number of prototypes to be learned")
+parser.add_argument("n_proto", type=int, default = 8, help="Number of prototypes to be learned")
 parser.add_argument("n_slots", type=int, default = 2, help="Number of slots per class")
 
 args = parser.parse_args()
@@ -34,28 +35,37 @@ NUM_SLOTS_PER_CLASS = args.n_slots
 
 NUM_ITERATIONS = 15
 NUM_EPOCHS = 100
-NUM_CLASSES = 3
+NUM_CLASSES = 4
 
 CONFIG_FILE = "config.toml"
-BATCH_SIZE = 32
-LATENT_SIZE = 256
+BATCH_SIZE = 128
+LATENT_SIZE = 300
 PROTOTYPE_SIZE = 50
 DEVICE = 'cuda'
-SIMULATION_EPOCHS = 30
+SIMULATION_EPOCHS = 30 
+
 clst_weight = 0.008 # better than 0.08
 sep_weight = -0.0008 # better than 0.008
 l1_weight = 1e-5 # better than 1e-4
 
-
-def print_info():
-    print("Training INFO:")
-    print(f"BATCH SIZE: {BATCH_SIZE}, NUM PROTOTYPES: {NUM_PROTOTYPES}, NUM SLOTS PER CLASS: {NUM_SLOTS_PER_CLASS}")
-    print(f"NUM ITERATIONS: {NUM_ITERATIONS}, NUM TRAINING EPOCHS: {NUM_EPOCHS}, SIMULATION EPOCHS: {SIMULATION_EPOCHS}")
-    print(f"Loss INFO --> clst_weight: {clst_weight}, sep_weight: {sep_weight}, l1_weight: {l1_weight}")
-    print("------------------------------------------------------------------------------------------------------------------------------")
-    return
-
-#print_info()
+env_name = "BipedalWalker-v3"
+random_seed = 0
+n_episodes = 30
+lr = 0.002
+max_timesteps = 2000
+render = True
+save_gif = False
+#filename = "TD3_{}_{}".format(env_name, random_seed)
+#filename += '_solved'
+filename = "TD3_BipedalWalker-v2_0_solved"
+#directory = "./preTrained/{}".format(env_name)
+directory = "./preTrained/BipedalWalker-v2/ONE"
+env = gym.make(env_name, hardcore=False)
+state_dim = env.observation_space.shape[0]
+action_dim = env.action_space.shape[0]
+max_action = float(env.action_space.high[0])
+policy = TD3(lr, state_dim, action_dim, max_action)
+policy.load_actor(directory, filename)
 
 class MyProtoNet(nn.Module):
     def __init__(self):
@@ -85,7 +95,6 @@ class MyProtoNet(nn.Module):
         self.class_identity_layer.weight.data.copy_(correct_class_connection * positive_one_weights_locations + incorrect_class_connection * negative_one_weights_locations)
         
         self.tanh = nn.Tanh()
-        self.relu = nn.ReLU()
         self.epsilon = 1e-5
     
     def prototype_layer(self, x):
@@ -105,14 +114,11 @@ class MyProtoNet(nn.Module):
         return similarity # (batch, NUM_PROTOTYPES)
     
     def output_activations(self, out):
-        out.T[0] = self.tanh(out.T[0]) # steering between -1 and +1
-        out.T[1] = self.relu(out.T[1]) # acc > 0
-        out.T[2] = self.relu(out.T[2]) # brake > 0 
-        return out
+        return self.tanh(out)
     
     def forward(self, x, gumbel_scalar, tau):
         '''
-        x (raw input) size: (batch, 256)
+        x (raw input) size: (batch, 24) 
         '''
         if gumbel_scalar == 0:
             proto_presence = torch.softmax(self.proto_presence, dim=1)
@@ -131,7 +137,7 @@ class MyProtoNet(nn.Module):
 
 def evaluate_loader(model, gumbel_scalar, loader, loss, tau):
     model.eval()
-    total_error = 0
+    total_loss = 0
     total = 0
     with torch.no_grad():
         for i, data in enumerate(loader):
@@ -139,11 +145,12 @@ def evaluate_loader(model, gumbel_scalar, loader, loss, tau):
             imgs, labels = imgs.to(DEVICE), labels.to(DEVICE)
             # size of imgs: [batch, 256], size of labels: [batch, 3]
             logits, _, _, _ = model(imgs, gumbel_scalar, tau)
+            
             current_loss = loss(logits, labels)
-            total_error += current_loss.item()
-            total += len(imgs)
+            total_loss += current_loss.item()
+            total += len(logits)
     model.train()
-    return total_error / total
+    return total_loss / len(loader)
 
 start_val = 1.3
 end_val = 10 **3 
@@ -169,15 +176,19 @@ def dist_loss(model, similarity, proto_presence, top_k, sep=False):
     cost = torch.mean(max_dist - inverted_distances)
     return cost
 
-def maximum(a, b, c): 
+def maximum(a, b, c, d): 
   
-    if (a >= b) and (a >= c): 
+    if (a >= b) and (a >= c) and (a >= d): 
         largest = a 
   
-    elif (b >= a) and (b >= c): 
+    elif (b >= a) and (b >= c) and (b >= d): 
         largest = b 
-    else: 
+    
+    elif (c >= a) and (c >= b) and (c >= d): 
         largest = c 
+        
+    else: 
+        largest = d 
           
     return largest 
         
@@ -214,46 +225,19 @@ for iter in range(NUM_ITERATIONS):
         f.write(f"ITERATION {iter}: \n")
         
     writer = SummaryWriter(f"runs/myprotonet_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/Iteration_{iter}")
-    
-    cfg = load_config()
-    env = CarRacing(frame_skip=0, frame_stack=4,)
-    net = RacingNet(env.observation_space.shape, env.action_space.shape)
-    ppo = PPO(
-        env,
-        net,
-        lr=cfg["lr"],
-        gamma=cfg["gamma"],
-        batch_size=cfg["batch_size"],
-        gae_lambda=cfg["gae_lambda"],
-        clip=cfg["clip"],
-        value_coef=cfg["value_coef"],
-        entropy_coef=cfg["entropy_coef"],
-        epochs_per_step=cfg["epochs_per_step"],
-        num_steps=cfg["num_steps"],
-        horizon=cfg["horizon"],
-        save_dir=cfg["save_dir"],
-        save_interval=cfg["save_interval"],
-    )
-    # agent weights
-    ppo.load("weights/agent_weights.pt")
-
-    with open('data/X_train.pkl', 'rb') as f:
-        X_train = pickle.load(f)
-    with open('data/real_actions.pkl', 'rb') as f:
-        real_actions = pickle.load(f)
 
     # TO SAVE PROTOTYPES
-    with open('data/obs_train.pkl', 'rb') as f:
-        X_train_observations = pickle.load(f)
-    X_train_observations = np.array([item for sublist in X_train_observations for item in sublist])
-    print("num X_train_observations: ", len(X_train_observations))
+    obs_train = np.load('data/obs_train.npy')
+    print("num X_train_observations: ", len(obs_train))
     
-    X_train = np.array([item for sublist in X_train for item in sublist])
+    X_train = np.load('data/X_train.npy')
     print("num X_train: ", len(X_train))
-    real_actions = np.array([item for sublist in real_actions for item in sublist])
+    a_train = np.load('data/a_train.npy')
+    
     tensor_x = torch.Tensor(X_train)
-    tensor_y = torch.tensor(real_actions, dtype=torch.float32)
-    train_dataset = TensorDataset(tensor_x.to(DEVICE), tensor_y.to(DEVICE))
+    print("tensor x size: ", tensor_x.size())
+    tensor_y = torch.tensor(a_train, dtype=torch.float32)
+    train_dataset = TensorDataset(tensor_x, tensor_y)
     train_loader = DataLoader(train_dataset, shuffle=True, batch_size=BATCH_SIZE)
     
     #### Train
@@ -273,8 +257,8 @@ for iter in range(NUM_ITERATIONS):
     projection_network.3.weight 
     projection_network.3.bias 
     class_identity_layer.weight 
-
     '''
+    
     running_loss = running_loss_mse = running_loss_clst = running_loss_sep = running_loss_l1 =  running_loss_ortho = 0.
     
     for epoch in range(NUM_EPOCHS):
@@ -314,14 +298,14 @@ for iter in range(NUM_ITERATIONS):
                 trained_prototype_clone = trained_p.clone().detach()[i].view(1,-1)
                 trained_prototype = trained_prototype_clone.cpu()
                 knn = KNeighborsRegressor(algorithm='brute')
-                knn.fit(transformed_x, list(range(len(transformed_x)))) # lista da 0 a len(transformed_x) - n of training data
+                knn.fit(transformed_x, list(range(len(transformed_x)))) 
                 dist, transf_idx = knn.kneighbors(X=trained_prototype, n_neighbors=1, return_distance=True)
-                projected_prototype = X_train[transf_idx.item()]# transformed_x[transf_idx.item()]
+                projected_prototype = X_train[transf_idx.item()] # transformed_x[transf_idx.item()]
                 list_projected_prototype.append(projected_prototype.tolist())
                 
                 if epoch == NUM_EPOCHS-20-2: 
                     print("I'm saving prototypes' images in prototypes/ directory...")
-                    prototype_image = X_train_observations[transf_idx.item()]
+                    prototype_image = obs_train[transf_idx.item()]
                     prototype_image = Image.fromarray(prototype_image, 'RGB')
                     p_path = prototype_path+f'p{i+1}.png'
                     prototype_image.save(p_path)
@@ -349,6 +333,7 @@ for iter in range(NUM_ITERATIONS):
         
                 
             loss1 = mse_loss(logits, labels) 
+
                 
             # orthogonal loss --> for slots orthogonality: in this way successive slots of a class are assigned to different prototypes
             orthogonal_loss = torch.Tensor([0]).to(DEVICE)
@@ -365,14 +350,16 @@ for iter in range(NUM_ITERATIONS):
             labels_p = labels.cpu().numpy().tolist()
             labels_pp = list()
             for label in (labels_p):
-                #label = [sterring between -1 and +1, accelerating >0, braking >0]
-                max_value = maximum(abs(label[0]), label[1], label[2])
+                #label = 4 continuous actions: hip torque, knee torque for each leg each from -1.0 to 1.0
+                max_value = maximum(abs(label[0]), abs(label[1]), abs(label[2]), abs(label[3]))
                 if max_value == abs(label[0]):
                     labels_pp.append(0)  
-                elif max_value == label[1]:
+                elif max_value == abs(label[1]):
                     labels_pp.append(1)
-                else:
+                elif max_value == abs(label[2]):
                     labels_pp.append(2)
+                else:
+                    labels_pp.append(3)
                                     
             proto_presence = proto_presence[labels_pp] 
             inverted_proto_presence = 1 - proto_presence
@@ -413,9 +400,8 @@ for iter in range(NUM_ITERATIONS):
             
         scheduler.step()
     
-    
     states, actions, rewards, log_probs, values, dones, X_train = [], [], [], [], [], [], []
-    self_state = ppo._to_tensor(env.reset())
+
 
     # Wrapper model with learned weights
     model = MyProtoNet().eval()
@@ -423,45 +409,42 @@ for iter in range(NUM_ITERATIONS):
     model.to(DEVICE)
     print("Checking for the error... :", evaluate_loader(model, gumbel_scalar, train_loader, mse_loss, tau))
 
-    reward_arr = []
+    total_reward = list()
     all_errors = list()
-    for i in tqdm(range(SIMULATION_EPOCHS)):
-        state = ppo._to_tensor(env.reset())
-        count = 0
-        rew = 0
-        rew_list = []
-        model.eval()
+    model.eval()
+    for ep in tqdm(range(SIMULATION_EPOCHS)):
+        ep_reward = 0
+        ep_errors = 0
+        state = env.reset()
 
-        for t in range(10000):
-            # Get black box action
-            value, alpha, beta, latent_x = ppo.net(state)
-            value, alpha, beta = value.squeeze(0), alpha.squeeze(0), beta.squeeze(0)
-            policy = Beta(alpha, beta)
-            input_action = policy.mean.detach()
-            bb_action = ppo.env.preprocess(input_action.cpu().numpy())
-            action, _, _, _ = model(latent_x.to(DEVICE), gumbel_scalar, tau)
-            all_errors.append(mse_loss(torch.tensor(bb_action).to(DEVICE), action[0]).detach().item())
+        for t in range(max_timesteps):
+            bb_action, x = policy.select_action(state)
+            A, _, _, _ = model( torch.tensor(x, dtype=torch.float32).view(1, -1).to(DEVICE), gumbel_scalar, tau )
+            state, reward, done, _ = env.step(A.detach().cpu().numpy()[0])
 
-            state, reward, done, _, _ = ppo.env.step(action[0].detach().cpu().numpy(), real_action=True)
-            state = ppo._to_tensor(state)
-            rew += reward
-            rew_list.append(reward)
-            count += 1
-            
+            ep_reward += reward
+            ep_errors += mse_loss( torch.tensor(bb_action).to(DEVICE), A[0]).detach().item()
+
             if done:
                 break
-        reward_arr.append(rew)
 
-    data_rewards.append(sum(reward_arr) / SIMULATION_EPOCHS)
+        print('Episode: {}\tReward: {}'.format(ep, int(ep_reward)))
+        total_reward.append( ep_reward )
+        all_errors.append( ep_errors )
+        ep_reward = 0
+    
+    env.close()
+
+    data_rewards.append(sum(total_reward) / SIMULATION_EPOCHS)
     data_errors.append(sum(all_errors) / SIMULATION_EPOCHS)
-    print("Reward: ", sum(reward_arr) / SIMULATION_EPOCHS)
+    print("Reward: ", sum(total_reward) / SIMULATION_EPOCHS)
     print("MSE: ", sum(all_errors) / SIMULATION_EPOCHS)
     # log the reward and MAE
-    writer.add_scalar("Reward", sum(reward_arr) / SIMULATION_EPOCHS, iter)
+    writer.add_scalar("Reward", sum(total_reward) / SIMULATION_EPOCHS, iter)
     writer.add_scalar("MSE", sum(all_errors) / SIMULATION_EPOCHS, iter)
     
     with open('results/myprotonet_results.txt', 'a') as f:
-        f.write(f"Reward: {sum(reward_arr) / SIMULATION_EPOCHS}, MSE: {sum(all_errors) / SIMULATION_EPOCHS}\n")
+        f.write(f"Reward: {sum(total_reward) / SIMULATION_EPOCHS}, MSE: {sum(all_errors) / SIMULATION_EPOCHS}\n")
 
 data_errors = np.array(data_errors)
 data_rewards = np.array(data_rewards)
@@ -490,3 +473,4 @@ with open('results/myprotonet_results.txt', 'a') as f:
             
             
             
+
