@@ -530,9 +530,11 @@ for iter in range(NUM_ITERATIONS):
                 if epoch == NUM_EPOCHS-4:
                     print("I'm saving prototypes' images in prototypes/ directory...")
                     prototype_image = X_train_observations[nn_idx.item()]
-                    prototype_image = Image.fromarray(prototype_image, 'RGB')
-                    p_path = prototype_path+f'p{i+1}.png'
-                    prototype_image.save(p_path)
+                    for j, frame in enumerate(prototype_image):
+                        prototype_image = Image.fromarray(frame, 'RGB')
+                        p_path = prototype_path+f'p{i+1}_'+f'FRAME{j+1}.png'
+                        prototype_image.save(p_path)
+
                                                 
             trained_prototypes = model.prototypes.clone().detach()
             tensor_proj_prototypes = torch.tensor(nn_xs, dtype=torch.float32)
