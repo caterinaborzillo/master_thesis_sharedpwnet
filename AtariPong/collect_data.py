@@ -290,7 +290,7 @@ if __name__ == "__main__":
             # temp = temp.tolist()            
             # all_states.append(temp)
             img_array = environment.render(mode='rgb_array')
-            images = [img_array]+images[1:]
+            images = [img_array]+images[:-1] 
             states.append(images)
 
       
