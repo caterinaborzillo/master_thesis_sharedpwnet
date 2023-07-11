@@ -8,6 +8,7 @@ import argparse
 
 from torch.utils.tensorboard import SummaryWriter
 
+from sklearn.cluster import KMeans
 from copy import deepcopy
 from PIL import Image
 from torch.utils.data import TensorDataset, DataLoader
@@ -46,16 +47,79 @@ clst_weight = 0.008 # better than 0.08
 sep_weight = -0.0008 # better than 0.008
 l1_weight = 1e-5 # better than 1e-4
 
+novel_initialization = True
 
-def print_info():
-    print("Training INFO:")
-    print(f"BATCH SIZE: {BATCH_SIZE}, NUM PROTOTYPES: {NUM_PROTOTYPES}, NUM SLOTS PER CLASS: {NUM_SLOTS_PER_CLASS}")
-    print(f"NUM ITERATIONS: {NUM_ITERATIONS}, NUM TRAINING EPOCHS: {NUM_EPOCHS}, SIMULATION EPOCHS: {SIMULATION_EPOCHS}")
-    print(f"Loss INFO --> clst_weight: {clst_weight}, sep_weight: {sep_weight}, l1_weight: {l1_weight}")
-    print("------------------------------------------------------------------------------------------------------------------------------")
-    return
+with open('data/X_train.pkl', 'rb') as f:
+    X_train = pickle.load(f)
+with open('data/real_actions.pkl', 'rb') as f:
+    real_actions = pickle.load(f)
 
-#print_info()
+X_train = np.array([item for sublist in X_train for item in sublist])
+print("num X_train: ", len(X_train))
+real_actions = np.array([item for sublist in real_actions for item in sublist])
+    
+def normalize_list(values):
+    min_value = min(values)
+    max_value = max(values)
+    
+    normalized_values = [(x - min_value) / (max_value - min_value) for x in values]
+    return normalized_values
+
+
+list_actions = {}
+medians = {}
+for actions in real_actions:
+    for action_id in range(NUM_CLASSES):
+        list_actions[action_id] = []
+        a = actions[action_id]
+        list_actions[action_id].append(a)
+        
+for action_id in range(NUM_CLASSES):        
+    m = np.median(list_actions[action_id])
+    medians[action_id] = m
+
+states_actions_zip = []
+for state, action in zip(X_train, real_actions):
+	states_actions_zip.append((state, action))
+ 
+state_actions = {}
+for action_id in range(NUM_CLASSES): 						
+	state_actions[action_id] = []						
+
+	action_values = [x[1][action_id] for x in states_actions_zip]   
+
+	median = medians[action_id]
+        
+	diff = [np.abs(p-median) for p in action_values]
+	normalized_diff = normalize_list(diff)
+
+	probs_50_perc = np.percentile(normalized_diff, 50)			
+
+	for (state, action), action_probs in zip(states_actions_zip, normalized_diff):
+		if action_probs > probs_50_perc:
+			state_actions[action_id].append(state)		# state_actions = {0: [stato1>50,stato2>50, stato3>50, ...]  1: , 2: }
+
+
+prototypes = []
+
+for action_id in range(NUM_CLASSES):
+	prototypes.append(KMeans(NUM_SLOTS_PER_CLASS, n_init="auto").fit(state_actions[action_id]).cluster_centers_) 
+										                                              
+
+# prototypes = [[p11,p12,p13],[p21,p22,p23],[p31,p32,p33],]
+
+ordered_prototypes = []
+
+for ps in zip(*prototypes):
+	for p in ps:
+		ordered_prototypes.append(p)
+
+
+# ordered_prototypes = [p11,p21,p31,p12,p22,p32,p13,p23,p33]
+
+init_prototypes = ordered_prototypes[:NUM_PROTOTYPES]
+
+init_prototypes = torch.tensor(init_prototypes, dtype=torch.float32)
 
 class MyProtoNet(nn.Module):
     def __init__(self):
@@ -66,7 +130,10 @@ class MyProtoNet(nn.Module):
             nn.ReLU(),
             nn.Linear(PROTOTYPE_SIZE, PROTOTYPE_SIZE),
         )
-        self.prototypes = nn.Parameter(torch.randn((NUM_PROTOTYPES, LATENT_SIZE), dtype=torch.float32), requires_grad=True) # in pw-net: randn
+        if novel_initialization:
+            self.prototypes = nn.Parameter(init_prototypes, requires_grad=True)
+        else:
+            self.prototypes = nn.Parameter(torch.randn((NUM_PROTOTYPES, LATENT_SIZE), dtype=torch.float32), requires_grad=True) # in pw-net: randn
         self.proto_presence = torch.zeros(NUM_CLASSES, NUM_PROTOTYPES, NUM_SLOTS_PER_CLASS)
         self.proto_presence = nn.Parameter(self.proto_presence, requires_grad=True)
         nn.init.xavier_normal_(self.proto_presence, gain=1.0)
@@ -92,7 +159,6 @@ class MyProtoNet(nn.Module):
         b_size = x.shape[0]
         transf_proto = list()
         for i in range(NUM_PROTOTYPES):
-            #print(self.prototypes[i].view(1,-1).shape)
             transf_proto.append(self.projection_network(self.prototypes[i].view(1, -1)))
         latent_protos = torch.cat(transf_proto, dim=0) 
         
@@ -237,20 +303,12 @@ for iter in range(NUM_ITERATIONS):
     # agent weights
     ppo.load("weights/agent_weights.pt")
 
-    with open('data/X_train.pkl', 'rb') as f:
-        X_train = pickle.load(f)
-    with open('data/real_actions.pkl', 'rb') as f:
-        real_actions = pickle.load(f)
-
     # TO SAVE PROTOTYPES
     with open('data/obs_train.pkl', 'rb') as f:
         X_train_observations = pickle.load(f)
     X_train_observations = np.array([item for sublist in X_train_observations for item in sublist])
     print("num X_train_observations: ", len(X_train_observations))
-    
-    X_train = np.array([item for sublist in X_train for item in sublist])
-    print("num X_train: ", len(X_train))
-    real_actions = np.array([item for sublist in real_actions for item in sublist])
+
     tensor_x = torch.Tensor(X_train)
     tensor_y = torch.tensor(real_actions, dtype=torch.float32)
     train_dataset = TensorDataset(tensor_x.to(DEVICE), tensor_y.to(DEVICE))
