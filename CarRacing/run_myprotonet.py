@@ -27,6 +27,7 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument("n_proto", type=int, default = 6, help="Number of prototypes to be learned")
 parser.add_argument("n_slots", type=int, default = 2, help="Number of slots per class")
+parser.add_argument("new_proto_init", action='store_true')
 
 args = parser.parse_args()
 
@@ -46,8 +47,6 @@ SIMULATION_EPOCHS = 30
 clst_weight = 0.008 # better than 0.08
 sep_weight = -0.0008 # better than 0.008
 l1_weight = 1e-5 # better than 1e-4
-
-novel_initialization = True
 
 with open('data/X_train.pkl', 'rb') as f:
     X_train = pickle.load(f)
@@ -124,7 +123,7 @@ class MyProtoNet(nn.Module):
             nn.ReLU(),
             nn.Linear(PROTOTYPE_SIZE, PROTOTYPE_SIZE),
         )
-        if novel_initialization:
+        if args.new_proto_init:
             self.prototypes = nn.Parameter(init_prototypes, requires_grad=True)
         else:
             self.prototypes = nn.Parameter(torch.randn((NUM_PROTOTYPES, LATENT_SIZE), dtype=torch.float32), requires_grad=True) # in pw-net: randn
