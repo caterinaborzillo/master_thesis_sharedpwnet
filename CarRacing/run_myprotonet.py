@@ -103,19 +103,13 @@ for action_id in range(NUM_CLASSES):
 prototypes = []
 
 for action_id in range(NUM_CLASSES):
-	prototypes.append(KMeans(NUM_SLOTS_PER_CLASS, n_init="auto").fit(state_actions[action_id]).cluster_centers_) 
-										                                              
-
-# prototypes = [[p11,p12,p13],[p21,p22,p23],[p31,p32,p33],]
+	prototypes.append(KMeans(NUM_SLOTS_PER_CLASS, n_init="auto").fit(state_actions[action_id]).cluster_centers_)   # prototypes = [[p11,p12,p13],[p21,p22,p23],[p31,p32,p33],]
 
 ordered_prototypes = []
 
 for ps in zip(*prototypes):
 	for p in ps:
-		ordered_prototypes.append(p)
-
-
-# ordered_prototypes = [p11,p21,p31,p12,p22,p32,p13,p23,p33]
+		ordered_prototypes.append(p)   # ordered_prototypes = [p11,p21,p31,p12,p22,p32,p13,p23,p33]
 
 init_prototypes = ordered_prototypes[:NUM_PROTOTYPES]
 
