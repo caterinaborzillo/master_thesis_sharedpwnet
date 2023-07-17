@@ -244,9 +244,9 @@ if not os.path.exists('results/'):
     os.makedirs('results/')
 
 if args.new_proto_init:
-    results_file = 'results/myprotonet_results_newinit.txt'
+    results_file = f'results/p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_results_newinit.txt'
 else:
-    results_file = 'results/myprotonet_results.txt'
+    results_file = f'results/p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_results.txt'
     
 print(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}")
 print(f"NUM_SLOTS: {NUM_SLOTS_PER_CLASS}")
