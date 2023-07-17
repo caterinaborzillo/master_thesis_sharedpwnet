@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import numpy as np      
-import pandas as pd
+#import pandas as pd
 import pickle
 
 from torch.utils.tensorboard import SummaryWriter

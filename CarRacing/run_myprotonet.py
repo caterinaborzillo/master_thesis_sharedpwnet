@@ -29,6 +29,7 @@ parser.add_argument("n_proto", type=int, default = 6, help="Number of prototypes
 parser.add_argument("n_slots", type=int, default = 2, help="Number of slots per class")
 parser.add_argument("new_proto_init", nargs='?', default=False, const=True, type=bool, help='Specify new proto initialization argument')
 
+
 args = parser.parse_args()
 
 NUM_PROTOTYPES = args.n_proto
@@ -113,7 +114,7 @@ for ps in zip(*prototypes):
 init_prototypes = ordered_prototypes[:NUM_PROTOTYPES]
 
 init_prototypes = torch.tensor(init_prototypes, dtype=torch.float32)
-
+print(init_prototypes.size())
 class MyProtoNet(nn.Module):
     def __init__(self):
         super(MyProtoNet, self).__init__()
@@ -312,6 +313,7 @@ for iter in range(NUM_ITERATIONS):
 
     tensor_x = torch.Tensor(X_train)
     tensor_y = torch.tensor(real_actions, dtype=torch.float32)
+    print(tensor_x.shape, tensor_y.shape)
     train_dataset = TensorDataset(tensor_x.to(DEVICE), tensor_y.to(DEVICE))
     train_loader = DataLoader(train_dataset, shuffle=True, batch_size=BATCH_SIZE)
     
