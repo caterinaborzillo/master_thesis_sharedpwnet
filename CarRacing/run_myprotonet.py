@@ -474,7 +474,8 @@ for iter in range(NUM_ITERATIONS):
         scheduler.step()
     
     
-    states, actions, rewards, log_probs, values, dones, X_train = [], [], [], [], [], [], []
+    #states, actions, rewards, log_probs, values, dones, X_train = [], [], [], [], [], [], []
+    states, actions, rewards, log_probs, values, dones = [], [], [], [], [], []
     self_state = ppo._to_tensor(env.reset())
 
     # Wrapper model with learned weights
