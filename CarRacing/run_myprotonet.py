@@ -27,7 +27,7 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument("n_proto", type=int, default = 6, help="Number of prototypes to be learned")
 parser.add_argument("n_slots", type=int, default = 2, help="Number of slots per class")
-parser.add_argument("new_proto_init", action='store_true')
+parser.add_argument("new_proto_init", nargs='?', default=False, const=True, type=bool, help='Specify new proto initialization argument')
 
 args = parser.parse_args()
 
@@ -243,11 +243,16 @@ def maximum(a, b, c):
 if not os.path.exists('results/'):
     os.makedirs('results/')
 
-
+if args.new_proto_init:
+    results_file = 'results/myprotonet_results_newinit.txt'
+else:
+    results_file = 'results/myprotonet_results.txt'
+    
 print(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}")
 print(f"NUM_SLOTS: {NUM_SLOTS_PER_CLASS}")
 
-with open('results/myprotonet_results.txt', 'a') as f:
+
+with open(results_file, 'a') as f:
     f.write("--------------------------------------------------------------------------------------------------------------------------\n")
     f.write(f"model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}\n")
     f.write(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}\n")
@@ -263,14 +268,17 @@ for iter in range(NUM_ITERATIONS):
     if not os.path.exists(MODEL_DIR):
         os.makedirs(MODEL_DIR)
     
-    prototype_path = f'prototypes/p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}/'
+    if args.new_proto_init:
+        prototype_path = f'prototypes/p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_newinit/iter_{iter}/'
+    else:
+        prototype_path = f'prototypes/p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}/'
     if not os.path.exists(prototype_path):
         os.makedirs(prototype_path)
     
     MODEL_DIR_ITER = f'weights/model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}.pth'
-    
-    with open('results/myprotonet_results.txt', 'a') as f:
-        f.write(f"ITERATION {iter}: \n")
+
+    with open(results_file, 'a') as f:
+        f.write(f"ITERATION {iter}: \n")       
         
     writer = SummaryWriter(f"runs/myprotonet_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/Iteration_{iter}")
     
@@ -455,9 +463,10 @@ for iter in range(NUM_ITERATIONS):
             optimizer.step()
     
         print("Epoch:", epoch, "Running Loss:", running_loss / len(train_loader), "Train error:", train_error)
-        with open('results/myprotonet_results.txt', 'a') as f:
-            f.write(f"Epoch: {epoch}, Running Loss: {running_loss / len(train_loader)}, Train error: {train_error}\n")
 
+        with open(results_file, 'a') as f:
+            f.write(f"Epoch: {epoch}, Running Loss: {running_loss / len(train_loader)}, Train error: {train_error}\n")
+                
         writer.add_scalar("Running_loss", running_loss/len(train_loader), epoch)
         writer.add_scalar("Train_error", train_error, epoch)
         running_loss = running_loss_mse = running_loss_clst = running_loss_sep = running_loss_l1 =  running_loss_ortho = 0.
@@ -511,9 +520,9 @@ for iter in range(NUM_ITERATIONS):
     writer.add_scalar("Reward", sum(reward_arr) / SIMULATION_EPOCHS, iter)
     writer.add_scalar("MSE", sum(all_errors) / SIMULATION_EPOCHS, iter)
     
-    with open('results/myprotonet_results.txt', 'a') as f:
-        f.write(f"Reward: {sum(reward_arr) / SIMULATION_EPOCHS}, MSE: {sum(all_errors) / SIMULATION_EPOCHS}\n")
-
+    with open(results_file, 'a') as f:
+        f.write(f"Reward: {sum(reward_arr) / SIMULATION_EPOCHS}, MSE: {sum(all_errors) / SIMULATION_EPOCHS}\n")     
+            
 data_errors = np.array(data_errors)
 data_rewards = np.array(data_rewards)
 
@@ -529,7 +538,7 @@ print("Mean:", data_rewards.mean())
 print("Standard Error:", data_rewards.std() / np.sqrt(NUM_ITERATIONS))
 
 
-with open('results/myprotonet_results.txt', 'a') as f:
+with open(results_file, 'a') as f:
     f.write("\n===== Data MAE:\n")
     f.write(f"MSE:  {data_errors}\n")
     f.write(f"Mean: {data_errors.mean()}\n")
@@ -538,6 +547,7 @@ with open('results/myprotonet_results.txt', 'a') as f:
     f.write(f"Rewards:  {data_rewards}\n")
     f.write(f"Mean: {data_rewards.mean()}\n")
     f.write(f"Standard Error: {data_rewards.std() / np.sqrt(NUM_ITERATIONS)}\n")
+
             
             
             
