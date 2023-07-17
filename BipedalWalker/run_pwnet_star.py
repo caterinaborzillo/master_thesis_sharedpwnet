@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import numpy as np      
-import pandas as pd
+#import pandas as pd
 import pickle
 
 from copy import deepcopy
@@ -217,7 +217,7 @@ for iter in range(NUM_ITERATIONS):
     mse_loss = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=1e-8)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
-    best_error = np.float('inf')
+    best_error = np.float64('inf')
     model.train()
 
     # Freeze Linear Layer to make more interpretable

@@ -6,7 +6,8 @@ from TD3 import TD3
 #from TD3 import TD3
 from PIL import Image
 import os
-
+import os
+os.environ["SDL_VIDEODRIVER"] = "dummy"
 if not os.path.exists('data/'):
     os.mkdir('data/')
     

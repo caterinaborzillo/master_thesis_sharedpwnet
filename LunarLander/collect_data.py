@@ -4,7 +4,8 @@ import gym
 from PIL import Image
 import numpy as np   
 import os
-
+import os
+os.environ["SDL_VIDEODRIVER"] = "dummy"
 from collections import Counter
 
 if not os.path.exists('data/'):
