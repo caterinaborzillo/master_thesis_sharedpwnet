@@ -42,6 +42,8 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument("n_proto", type=int, default = 6, help="Number of prototypes to be learned")
 parser.add_argument("n_slots", type=int, default = 2, help="Number of slots per class")
+parser.add_argument("new_proto_init", nargs='?', default=False, const=True, type=bool, help='Specify new proto initialization argument')
+
 
 args = parser.parse_args()
 
@@ -269,6 +271,71 @@ class Agent:
         if self.epsilon > self.epsilon_minimum:
             self.epsilon *= self.epsilon_decay
 
+with open('data/X_train.pkl', 'rb') as f:
+    X_train = pickle.load(f)
+with open('data/a_train.pkl', 'rb') as f:
+    a_train = pickle.load(f)
+
+with open('data/obs_train.pkl', 'rb') as f:
+    X_train_observations = pickle.load(f)
+
+def normalize_list(values):
+    min_value = min(values)
+    max_value = max(values)
+    
+    normalized_values = [(x - min_value) / (max_value - min_value) for x in values]
+    return normalized_values
+
+
+list_actions = {}
+medians = {}
+for actions in a_train:
+    for action_id in range(NUM_CLASSES):
+        list_actions[action_id] = []
+        a = actions[action_id]
+        list_actions[action_id].append(a)
+        
+for action_id in range(NUM_CLASSES):        
+    m = np.median(list_actions[action_id])
+    medians[action_id] = m
+
+states_actions_zip = []
+for state, action in zip(X_train, a_train):
+	states_actions_zip.append((state, action))
+ 
+state_actions = {}
+for action_id in range(NUM_CLASSES): 						
+	state_actions[action_id] = []						
+
+	action_values = [x[1][action_id] for x in states_actions_zip]   
+
+	median = medians[action_id]
+        
+	diff = [np.abs(p-median) for p in action_values]
+	normalized_diff = normalize_list(diff)
+
+	probs_50_perc = np.percentile(normalized_diff, 50)			
+
+	for (state, action), action_probs in zip(states_actions_zip, normalized_diff):
+		if action_probs > probs_50_perc:
+			state_actions[action_id].append(state)		# state_actions = {0: [stato1>50,stato2>50, stato3>50, ...]  1: , 2: }
+
+
+prototypes = []
+
+for action_id in range(NUM_CLASSES):
+	prototypes.append(KMeans(NUM_SLOTS_PER_CLASS, n_init="auto").fit(state_actions[action_id]).cluster_centers_)   # prototypes = [[p11,p12,p13],[p21,p22,p23],[p31,p32,p33],]
+
+ordered_prototypes = []
+
+for ps in zip(*prototypes):
+	for p in ps:
+		ordered_prototypes.append(p)   # ordered_prototypes = [p11,p21,p31,p12,p22,p32,p13,p23,p33]
+
+init_prototypes = ordered_prototypes[:NUM_PROTOTYPES]
+
+init_prototypes = torch.tensor(init_prototypes, dtype=torch.float32)
+
 class MyProtoNet(nn.Module):
     def __init__(self):
         super(MyProtoNet, self).__init__()
@@ -278,7 +345,11 @@ class MyProtoNet(nn.Module):
             nn.ReLU(),
             nn.Linear(PROTOTYPE_SIZE, PROTOTYPE_SIZE),
         )
-        self.prototypes = nn.Parameter(torch.randn((NUM_PROTOTYPES, LATENT_SIZE), dtype=torch.float32), requires_grad=True) # in pw-net: randn
+        if args.new_proto_init:
+            self.prototypes = nn.Parameter(init_prototypes, requires_grad=True)
+        else:
+            self.prototypes = nn.Parameter(torch.randn((NUM_PROTOTYPES, LATENT_SIZE), dtype=torch.float32), requires_grad=True) # in pw-net: randn
+            
         self.proto_presence = torch.zeros(NUM_CLASSES, NUM_PROTOTYPES, NUM_SLOTS_PER_CLASS)
         self.proto_presence = nn.Parameter(self.proto_presence, requires_grad=True)
         nn.init.xavier_normal_(self.proto_presence, gain=1.0)
@@ -381,11 +452,15 @@ def dist_loss(model, similarity, proto_presence, top_k, sep=False):
 if not os.path.exists('results/'):
     os.makedirs('results/')
 
+if args.new_proto_init:
+    results_file = f'results/p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_results_newinit.txt'
+else:
+    results_file = f'results/p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_results.txt'
 
 print(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}")
 print(f"NUM_SLOTS: {NUM_SLOTS_PER_CLASS}")
 
-with open('results/myprotonet_results.txt', 'a') as f:
+with open(results_file, 'a') as f:
     f.write("--------------------------------------------------------------------------------------------------------------------------\n")
     f.write(f"model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}\n")
     f.write(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}\n")
@@ -406,7 +481,7 @@ for iter in range(NUM_ITERATIONS):
     if not os.path.exists(prototype_path):
         os.makedirs(prototype_path)
     
-    with open('results/myprotonet_results.txt', 'a') as f:
+    with open(results_file, 'a') as f:
         f.write(f"ITERATION {iter}: \n")
         
     writer = SummaryWriter(f"runs/myprotonet_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/Iteration_{iter}")
@@ -425,14 +500,6 @@ for iter in range(NUM_ITERATIONS):
     last_100_ep_reward = deque(maxlen=100)  # Last 100 episode rewards
     total_step = 1  # Cumulkative sum of all steps in episodes
 
-
-    with open('data/X_train.pkl', 'rb') as f:
-        X_train = pickle.load(f)
-    with open('data/a_train.pkl', 'rb') as f:
-        a_train = pickle.load(f)
-
-    with open('data/obs_train.pkl', 'rb') as f:
-        X_train_observations = pickle.load(f)
     
     X_train = np.array(X_train)
     a_train = np.array(a_train)
@@ -584,7 +651,7 @@ for iter in range(NUM_ITERATIONS):
             optimizer.step()
     
         print("Epoch:", epoch, "Running Loss:", running_loss / len(train_loader), "Current accuracy:", current_acc)
-        with open('results/myprotonet_results.txt', 'a') as f:
+        with open(results_file, 'a') as f:
             f.write(f"Epoch: {epoch}, Running Loss: {running_loss / len(train_loader)}, Current accuracy: {current_acc}\n")
         #writer.add_scalar("Loss_mse/train", running_loss_mse/len(train_loader), epoch)
         #writer.add_scalar("Loss_clst/train", running_loss_clst/len(train_loader), epoch)
@@ -597,7 +664,7 @@ for iter in range(NUM_ITERATIONS):
             
         scheduler.step()
     
-    states, actions, rewards, log_probs, values, dones, X_train = [], [], [], [], [], [], []
+    states, actions, rewards, log_probs, values, dones = [], [], [], [], [], []
     
     # Wrapper model with learned weights
     model = MyProtoNet().eval()
@@ -670,7 +737,7 @@ for iter in range(NUM_ITERATIONS):
     writer.add_scalar("Reward", sum(all_rewards) / SIMULATION_EPOCHS, iter)
     writer.add_scalar("Accuracy", sum(all_acc) / SIMULATION_EPOCHS, iter)
     
-    with open('results/myprotonet_results.txt', 'a') as f:
+    with open(results_file, 'a') as f:
         f.write(f"Reward: {sum(all_rewards) / SIMULATION_EPOCHS}, Accuracy: {sum(all_acc) / SIMULATION_EPOCHS}\n")
 
 data_accuracy = np.array(data_accuracy)
@@ -689,7 +756,7 @@ print("Mean:", data_rewards.mean())
 print("Standard Error:", data_rewards.std() / np.sqrt(NUM_ITERATIONS))
 
 
-with open('results/myprotonet_results.txt', 'a') as f:
+with open(results_file, 'a') as f:
     f.write("\n===== Data Accuracy:\n")
     f.write(f"Accuracy:  {data_accuracy}\n")
     f.write(f"Mean: {data_accuracy.mean()}\n")
