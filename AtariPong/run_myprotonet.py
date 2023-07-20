@@ -279,31 +279,27 @@ with open('data/a_train.pkl', 'rb') as f:
 with open('data/obs_train.pkl', 'rb') as f:
     X_train_observations = pickle.load(f)
 
+'''
 def normalize_list(values):
     min_value = min(values)
     max_value = max(values)
     
     normalized_values = [(x - min_value) / (max_value - min_value) for x in values]
     return normalized_values
+'''
+# ogni azione non è come in Carracing [-0.584, 0.0, 0.456] ma ogni azioni in Ataripong è un intero [4]
+# actions space= [0,1,2,3,4,5]
 
-
-list_actions = {}
-medians = {}
-for actions in a_train:
-    for action_id in range(NUM_CLASSES):
-        list_actions[action_id] = []
-        a = actions[action_id]
-        list_actions[action_id].append(a)
+# qui mappo stato e azione corrispondente del dataset 
+action_states = {}
+for action_id in range(NUM_CLASSES):
+    action_states[action_id] = []
+    
+    for state, action in zip(X_train, a_train):
+        if action == action_id:
+            action_states[action_id].append(state)
         
-for action_id in range(NUM_CLASSES):        
-    m = np.median(list_actions[action_id])
-    medians[action_id] = m
-
-states_actions_zip = []
-for state, action in zip(X_train, a_train):
-	states_actions_zip.append((state, action))
- 
-state_actions = {}
+'''state_actions = {}
 for action_id in range(NUM_CLASSES): 						
 	state_actions[action_id] = []						
 
@@ -319,12 +315,12 @@ for action_id in range(NUM_CLASSES):
 	for (state, action), action_probs in zip(states_actions_zip, normalized_diff):
 		if action_probs > probs_50_perc:
 			state_actions[action_id].append(state)		# state_actions = {0: [stato1>50,stato2>50, stato3>50, ...]  1: , 2: }
-
+'''
 
 prototypes = []
 
 for action_id in range(NUM_CLASSES):
-	prototypes.append(KMeans(NUM_SLOTS_PER_CLASS, n_init="auto").fit(state_actions[action_id]).cluster_centers_)   # prototypes = [[p11,p12,p13],[p21,p22,p23],[p31,p32,p33],]
+	prototypes.append(KMeans(NUM_SLOTS_PER_CLASS, n_init="auto").fit(action_states[action_id]).cluster_centers_)   # prototypes = [[p11,p12,p13],[p21,p22,p23],[p31,p32,p33],]
 
 ordered_prototypes = []
 
