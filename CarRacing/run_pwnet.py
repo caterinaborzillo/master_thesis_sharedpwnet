@@ -294,7 +294,7 @@ for iter in range(NUM_ITERATIONS): # 5
 
     # Wrapper model with learned weights
     model = PWNet().eval()
-    model.load_state_dict(torch.load(MODEL_DIR))
+    model.load_state_dict(torch.load(MODEL_DIR_ITER))
     #print("Sanity Check MSE Eval:", evaluate_loader(model, train_loader, mse_loss))
     print("Checking for the error...", evaluate_loader(model, train_loader, mse_loss))
     

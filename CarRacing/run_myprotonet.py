@@ -55,7 +55,7 @@ with open('data/real_actions.pkl', 'rb') as f:
     real_actions = pickle.load(f)
 
 X_train = np.array([item for sublist in X_train for item in sublist])
-print("num X_train: ", len(X_train))
+
 real_actions = np.array([item for sublist in real_actions for item in sublist])
     
 def normalize_list(values):
@@ -114,7 +114,8 @@ for ps in zip(*prototypes):
 init_prototypes = ordered_prototypes[:NUM_PROTOTYPES]
 
 init_prototypes = torch.tensor(init_prototypes, dtype=torch.float32)
-print(init_prototypes.size())
+#print(init_prototypes.size())
+
 class MyProtoNet(nn.Module):
     def __init__(self):
         super(MyProtoNet, self).__init__()
