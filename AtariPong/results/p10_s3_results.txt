@@ -205,3 +205,11 @@ Epoch: 96, Running Loss: -1.4267193195672356, Current accuracy: 86.8678700361010
 Epoch: 97, Running Loss: -1.3563300459228613, Current accuracy: 81.95523465703971
 Epoch: 98, Running Loss: -1.2804357771067738, Current accuracy: 74.08231046931408
 Epoch: 99, Running Loss: -1.1645957860039653, Current accuracy: 67.26931407942239
+Reward: 14.133333333333333, Accuracy: 0.8799485726464034
+ITERATION 2: 
+Epoch: 0, Running Loss: -1.0033739200919618, Current accuracy: 17.819494584837546
+Epoch: 1, Running Loss: -1.1757524104880053, Current accuracy: 34.85487364620939
+Epoch: 2, Running Loss: -1.358902722404494, Current accuracy: 65.08303249097473
+Epoch: 3, Running Loss: -1.4219031846864512, Current accuracy: 79.5624548736462
+Epoch: 4, Running Loss: -1.4432738412890518, Current accuracy: 80.7927797833935
+Epoch: 5, Running Loss: -1.4620861911377419, Current accuracy: 83.76895306859205

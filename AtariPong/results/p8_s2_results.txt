@@ -1265,3 +1265,8 @@ Epoch: 34, Running Loss: -1.7968057066009535, Current accuracy: 90.3046931407942
 Epoch: 35, Running Loss: -1.8560174220376617, Current accuracy: 90.49819494584838
 Epoch: 36, Running Loss: -1.8387548758382612, Current accuracy: 90.59350180505416
 Epoch: 37, Running Loss: -1.8565284257009969, Current accuracy: 90.61516245487364
+Epoch: 38, Running Loss: -1.8512993338805928, Current accuracy: 90.65848375451263
+Epoch: 39, Running Loss: -1.8590606069080498, Current accuracy: 90.7581227436823
+Epoch: 40, Running Loss: -1.8516235070875806, Current accuracy: 90.86931407942238
+Epoch: 41, Running Loss: -1.860860639001524, Current accuracy: 91.00361010830325
+Epoch: 42, Running Loss: -1.8590094240748651, Current accuracy: 90.7667870036101
