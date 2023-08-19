@@ -18,7 +18,7 @@ from torch.distributions import Beta
 from tqdm import tqdm
 
 
-NUM_ITERATIONS = 15
+NUM_ITERATIONS = 5
 NUM_EPOCHS = 100
 NUM_CLASSES = 3
 
@@ -257,8 +257,8 @@ for iter in range(NUM_ITERATIONS): # 5
     # Freeze Linear Layer W'
     model.linear.weight.requires_grad = False
 
-    running_loss = 0
-    for epoch in range(NUM_EPOCHS): # 10
+    for epoch in range(NUM_EPOCHS): 
+        running_loss = 0
         
         model.eval()
         train_error = evaluate_loader(model, train_loader, mse_loss)
@@ -339,7 +339,6 @@ for iter in range(NUM_ITERATIONS): # 5
     # log the reward and MAE
     writer.add_scalar("Reward", sum(reward_arr) / SIMULATION_EPOCHS, iter)
     writer.add_scalar("MSE", sum(all_errors) / SIMULATION_EPOCHS, iter)
-    running_loss = 0 
     
     with open('results/pwnet_results.txt', 'a') as f:
         f.write(f"Reward: {sum(reward_arr) / SIMULATION_EPOCHS}, MSE: {sum(all_errors) / SIMULATION_EPOCHS}\n")

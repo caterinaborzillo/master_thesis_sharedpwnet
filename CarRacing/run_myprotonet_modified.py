@@ -45,8 +45,8 @@ LATENT_SIZE = 256
 PROTOTYPE_SIZE = 50
 DEVICE = 'cuda'
 SIMULATION_EPOCHS = 30
-clst_weight = 0.008 # better than 0.08
-sep_weight = -0.0008 # better than 0.008
+clst_weight = 0.003 #0.008 # better than 0.08
+sep_weight = -0.0003 #-0.0008 # better than 0.008
 l1_weight = 1e-5 # better than 1e-4
 
 with open('data/X_train.pkl', 'rb') as f:
