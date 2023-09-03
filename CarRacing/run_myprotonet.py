@@ -22,6 +22,7 @@ from ppo import PPO
 from torch.distributions import Beta
 from tqdm import tqdm
 from sklearn.neighbors import KNeighborsRegressor
+import datetime
 
 parser = argparse.ArgumentParser()
 
@@ -48,6 +49,13 @@ SIMULATION_EPOCHS = 30
 clst_weight = 0.08 # better than 0.08
 sep_weight = -0.008 # better than 0.008
 l1_weight = 1e-5 # better than 1e-4
+
+name_file = "run_myprotonet"
+
+current_date = datetime.date.today()
+
+# date as "dd_mm_yyyy"
+date = current_date.strftime("%d_%m_%Y")
 
 with open('data/X_train.pkl', 'rb') as f:
     X_train = pickle.load(f)
@@ -246,9 +254,9 @@ if not os.path.exists('results/'):
     os.makedirs('results/')
 
 if args.new_proto_init:
-    results_file = f'results/p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_results_newinit.txt'
+    results_file = f'results/{date}_{name_file}_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_results_newinit.txt'
 else:
-    results_file = f'results/p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_results.txt'
+    results_file = f'results/{date}_{name_file}_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_results.txt'
     
 print(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}")
 print(f"NUM_SLOTS: {NUM_SLOTS_PER_CLASS}")
@@ -266,23 +274,23 @@ data_errors = list()
 
 for iter in range(NUM_ITERATIONS):
     
-    MODEL_DIR = f'weights/model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/'
+    MODEL_DIR = f'weights/{date}_{name_file}_model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/'
     if not os.path.exists(MODEL_DIR):
         os.makedirs(MODEL_DIR)
     
     if args.new_proto_init:
-        prototype_path = f'prototypes/p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_newinit/iter_{iter}/'
+        prototype_path = f'prototypes/{date}_{name_file}_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_newinit/iter_{iter}/'
     else:
-        prototype_path = f'prototypes/p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}/'
+        prototype_path = f'prototypes/{date}_{name_file}_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}/'
     if not os.path.exists(prototype_path):
         os.makedirs(prototype_path)
     
-    MODEL_DIR_ITER = f'weights/model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}.pth'
+    MODEL_DIR_ITER = f'weights/{date}_{name_file}_model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}.pth'
 
     with open(results_file, 'a') as f:
         f.write(f"ITERATION {iter}: \n")       
         
-    writer = SummaryWriter(f"runs/myprotonet_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/Iteration_{iter}")
+    writer = SummaryWriter(f"runs/{date}_{name_file}_myprotonet_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/Iteration_{iter}")
     
     cfg = load_config()
     env = CarRacing(frame_skip=0, frame_stack=4,)
