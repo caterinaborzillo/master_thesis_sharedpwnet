@@ -10,6 +10,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 from copy import deepcopy
 from PIL import Image
+import datetime
+import random
 
 from TD3 import TD3
 
@@ -22,19 +24,21 @@ from itertools import combinations
 from torch.distributions import Beta
 from tqdm import tqdm
 from sklearn.neighbors import KNeighborsRegressor
+from sklearn.cluster import KMeans
 
 parser = argparse.ArgumentParser()
 
 parser.add_argument("n_proto", type=int, default = 8, help="Number of prototypes to be learned")
 parser.add_argument("n_slots", type=int, default = 2, help="Number of slots per class")
+parser.add_argument("new_proto_init", nargs='?', default=False, const=True, type=bool, help='Specify new proto initialization argument')
 
 args = parser.parse_args()
 
 NUM_PROTOTYPES = args.n_proto
 NUM_SLOTS_PER_CLASS = args.n_slots
 
-NUM_ITERATIONS = 15
-NUM_EPOCHS = 100
+NUM_ITERATIONS = 5
+NUM_EPOCHS = 50
 NUM_CLASSES = 4
 
 CONFIG_FILE = "config.toml"
@@ -43,6 +47,11 @@ LATENT_SIZE = 300
 PROTOTYPE_SIZE = 50
 DEVICE = 'cuda'
 SIMULATION_EPOCHS = 30 
+
+name_file = "run_myprotonet"
+
+current_date = datetime.date.today()
+date = current_date.strftime("%d_%m_%Y")
 
 clst_weight = 0.008 # better than 0.08
 sep_weight = -0.0008 # better than 0.008
@@ -67,6 +76,65 @@ max_action = float(env.action_space.high[0])
 policy = TD3(lr, state_dim, action_dim, max_action)
 policy.load_actor(directory, filename)
 
+# novel initialization
+X_train = np.load('data/X_train.npy')
+a_train = np.load('data/a_train.npy')
+
+def normalize_list(values):
+    min_value = min(values)
+    max_value = max(values)
+    
+    normalized_values = [(x - min_value) / (max_value - min_value) for x in values]
+    return normalized_values
+
+list_actions = {}
+medians = {}
+for actions in a_train:
+    for action_id in range(NUM_CLASSES):
+        list_actions[action_id] = []
+        a = actions[action_id]
+        list_actions[action_id].append(a)
+        
+for action_id in range(NUM_CLASSES):        
+    m = np.median(list_actions[action_id])
+    medians[action_id] = m
+
+states_actions_zip = []
+for state, action in zip(X_train, a_train):
+	states_actions_zip.append((state, action))
+
+state_actions = {}
+for action_id in range(NUM_CLASSES): 						
+	state_actions[action_id] = []						
+
+	action_values = [x[1][action_id] for x in states_actions_zip]   
+
+	median = medians[action_id]
+        
+	diff = [np.abs(p-median) for p in action_values]
+	normalized_diff = normalize_list(diff)
+
+	probs_50_perc = np.percentile(normalized_diff, 50)			
+
+	for (state, action), action_probs in zip(states_actions_zip, normalized_diff):
+		if action_probs > probs_50_perc:
+			state_actions[action_id].append(state)		# state_actions = {0: [stato1>50,stato2>50, stato3>50, ...]  1: , 2: }
+
+prototypes = []
+
+for action_id in range(NUM_CLASSES):
+	prototypes.append(KMeans(NUM_SLOTS_PER_CLASS, n_init="auto").fit(state_actions[action_id]).cluster_centers_)   # prototypes = [[p11,p12,p13],[p21,p22,p23],[p31,p32,p33],]
+
+ordered_prototypes = []
+
+for ps in zip(*prototypes):
+	for p in ps:
+		ordered_prototypes.append(p)   # ordered_prototypes = [p11,p21,p31,p12,p22,p32,p13,p23,p33]
+
+init_prototypes = random.sample(ordered_prototypes, NUM_PROTOTYPES)
+
+init_prototypes = torch.tensor(init_prototypes, dtype=torch.float32)
+
 class MyProtoNet(nn.Module):
     def __init__(self):
         super(MyProtoNet, self).__init__()
@@ -76,7 +144,10 @@ class MyProtoNet(nn.Module):
             nn.ReLU(),
             nn.Linear(PROTOTYPE_SIZE, PROTOTYPE_SIZE),
         )
-        self.prototypes = nn.Parameter(torch.randn((NUM_PROTOTYPES, LATENT_SIZE), dtype=torch.float32), requires_grad=True) # in pw-net: randn
+        if args.new_proto_init:
+            self.prototypes = nn.Parameter(init_prototypes, requires_grad=True)
+        else:
+            self.prototypes = nn.Parameter(torch.randn((NUM_PROTOTYPES, LATENT_SIZE), dtype=torch.float32), requires_grad=True) # in pw-net: randn
         self.proto_presence = torch.zeros(NUM_CLASSES, NUM_PROTOTYPES, NUM_SLOTS_PER_CLASS)
         self.proto_presence = nn.Parameter(self.proto_presence, requires_grad=True)
         nn.init.xavier_normal_(self.proto_presence, gain=1.0)
@@ -195,11 +266,15 @@ def maximum(a, b, c, d):
 if not os.path.exists('results/'):
     os.makedirs('results/')
 
-
+if args.new_proto_init:
+    results_file = f'results/{date}_{name_file}_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_results_newinit.txt'
+else:
+    results_file = f'results/{date}_{name_file}_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_results.txt'
+    
 print(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}")
 print(f"NUM_SLOTS: {NUM_SLOTS_PER_CLASS}")
 
-with open('results/myprotonet_results.txt', 'a') as f:
+with open(results_file, 'a') as f:
     f.write("--------------------------------------------------------------------------------------------------------------------------\n")
     f.write(f"model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}\n")
     f.write(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}\n")
@@ -211,31 +286,32 @@ data_errors = list()
 
 for iter in range(NUM_ITERATIONS):
     
-    MODEL_DIR = f'weights/model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/'
+    MODEL_DIR = f'weights/{date}_{name_file}_model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/'
     if not os.path.exists(MODEL_DIR):
         os.makedirs(MODEL_DIR)
     
-    prototype_path = f'prototypes/p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}/'
+    if args.new_proto_init:
+        prototype_path = f'prototypes/{date}_{name_file}_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_newinit/iter_{iter}/'
+    else:
+        prototype_path = f'prototypes/{date}_{name_file}_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}/'
     if not os.path.exists(prototype_path):
         os.makedirs(prototype_path)
     
-    MODEL_DIR_ITER = f'weights/model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}.pth'
+    MODEL_DIR_ITER = f'weights/{date}_{name_file}_model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}.pth'
     
-    with open('results/myprotonet_results.txt', 'a') as f:
+    with open(results_file, 'a') as f:
         f.write(f"ITERATION {iter}: \n")
         
-    writer = SummaryWriter(f"runs/myprotonet_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/Iteration_{iter}")
+    writer = SummaryWriter(f"runs/{date}_{name_file}_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/Iteration_{iter}")
 
     # TO SAVE PROTOTYPES
     obs_train = np.load('data/obs_train.npy')
-    print("num X_train_observations: ", len(obs_train))
     
     X_train = np.load('data/X_train.npy')
-    print("num X_train: ", len(X_train))
     a_train = np.load('data/a_train.npy')
     
     tensor_x = torch.Tensor(X_train)
-    print("tensor x size: ", tensor_x.size())
+    #print("tensor x size: ", tensor_x.size())
     tensor_y = torch.tensor(a_train, dtype=torch.float32)
     train_dataset = TensorDataset(tensor_x, tensor_y)
     train_loader = DataLoader(train_dataset, shuffle=True, batch_size=BATCH_SIZE)
@@ -391,7 +467,7 @@ for iter in range(NUM_ITERATIONS):
             optimizer.step()
     
         print("Epoch:", epoch, "Running Loss:", running_loss / len(train_loader), "Train error:", train_error)
-        with open('results/myprotonet_results.txt', 'a') as f:
+        with open(results_file, 'a') as f:
             f.write(f"Epoch: {epoch}, Running Loss: {running_loss / len(train_loader)}, Train error: {train_error}\n")
 
         writer.add_scalar("Running_loss", running_loss/len(train_loader), epoch)
@@ -400,7 +476,7 @@ for iter in range(NUM_ITERATIONS):
             
         scheduler.step()
     
-    states, actions, rewards, log_probs, values, dones, X_train = [], [], [], [], [], [], []
+    #states, actions, rewards, log_probs, values, dones, X_train = [], [], [], [], [], [], []
 
 
     # Wrapper model with learned weights
@@ -443,7 +519,7 @@ for iter in range(NUM_ITERATIONS):
     writer.add_scalar("Reward", sum(total_reward) / SIMULATION_EPOCHS, iter)
     writer.add_scalar("MSE", sum(all_errors) / SIMULATION_EPOCHS, iter)
     
-    with open('results/myprotonet_results.txt', 'a') as f:
+    with open(results_file, 'a') as f:
         f.write(f"Reward: {sum(total_reward) / SIMULATION_EPOCHS}, MSE: {sum(all_errors) / SIMULATION_EPOCHS}\n")
 
 data_errors = np.array(data_errors)
@@ -461,7 +537,7 @@ print("Mean:", data_rewards.mean())
 print("Standard Error:", data_rewards.std() / np.sqrt(NUM_ITERATIONS))
 
 
-with open('results/myprotonet_results.txt', 'a') as f:
+with open(results_file, 'a') as f:
     f.write("\n===== Data MAE:\n")
     f.write(f"MSE:  {data_errors}\n")
     f.write(f"Mean: {data_errors.mean()}\n")

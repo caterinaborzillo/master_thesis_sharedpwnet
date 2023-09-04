@@ -9,6 +9,7 @@ import argparse
 from torch.utils.tensorboard import SummaryWriter
 
 from sklearn.cluster import KMeans
+import random
 from copy import deepcopy
 from PIL import Image
 from torch.utils.data import TensorDataset, DataLoader
@@ -29,7 +30,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument("n_proto", type=int, default = 6, help="Number of prototypes to be learned")
 parser.add_argument("n_slots", type=int, default = 2, help="Number of slots per class")
 parser.add_argument("new_proto_init", nargs='?', default=False, const=True, type=bool, help='Specify new proto initialization argument')
-
 
 args = parser.parse_args()
 
@@ -53,10 +53,9 @@ l1_weight = 1e-5 # better than 1e-4
 name_file = "run_myprotonet"
 
 current_date = datetime.date.today()
-
-# date as "dd_mm_yyyy"
 date = current_date.strftime("%d_%m_%Y")
 
+# novel initialization
 with open('data/X_train.pkl', 'rb') as f:
     X_train = pickle.load(f)
 with open('data/real_actions.pkl', 'rb') as f:
@@ -72,7 +71,6 @@ def normalize_list(values):
     
     normalized_values = [(x - min_value) / (max_value - min_value) for x in values]
     return normalized_values
-
 
 list_actions = {}
 medians = {}
@@ -119,10 +117,9 @@ for ps in zip(*prototypes):
 	for p in ps:
 		ordered_prototypes.append(p)   # ordered_prototypes = [p11,p21,p31,p12,p22,p32,p13,p23,p33]
 
-init_prototypes = ordered_prototypes[:NUM_PROTOTYPES]
+init_prototypes = random.sample(ordered_prototypes, NUM_PROTOTYPES)
 
 init_prototypes = torch.tensor(init_prototypes, dtype=torch.float32)
-#print(init_prototypes.size())
 
 class MyProtoNet(nn.Module):
     def __init__(self):
@@ -290,7 +287,7 @@ for iter in range(NUM_ITERATIONS):
     with open(results_file, 'a') as f:
         f.write(f"ITERATION {iter}: \n")       
         
-    writer = SummaryWriter(f"runs/{date}_{name_file}_myprotonet_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/Iteration_{iter}")
+    writer = SummaryWriter(f"runs/{date}_{name_file}_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/Iteration_{iter}")
     
     cfg = load_config()
     env = CarRacing(frame_skip=0, frame_stack=4,)
