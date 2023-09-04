@@ -35,6 +35,7 @@ from sklearn.cluster import KMeans, DBSCAN, OPTICS
 from random import sample
 from tqdm import tqdm
 from time import sleep
+import datetime
 
 from collections import deque
 
@@ -43,7 +44,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument("n_proto", type=int, default = 6, help="Number of prototypes to be learned")
 parser.add_argument("n_slots", type=int, default = 2, help="Number of slots per class")
 parser.add_argument("new_proto_init", nargs='?', default=False, const=True, type=bool, help='Specify new proto initialization argument')
-
 
 args = parser.parse_args()
 
@@ -271,6 +271,11 @@ class Agent:
         if self.epsilon > self.epsilon_minimum:
             self.epsilon *= self.epsilon_decay
 
+name_file = "run_myprotonet"
+
+current_date = datetime.date.today()
+date = current_date.strftime("%d_%m_%Y")
+
 with open('data/X_train.pkl', 'rb') as f:
     X_train = pickle.load(f)
 with open('data/a_train.pkl', 'rb') as f:
@@ -328,7 +333,7 @@ for ps in zip(*prototypes):
 	for p in ps:
 		ordered_prototypes.append(p)   # ordered_prototypes = [p11,p21,p31,p12,p22,p32,p13,p23,p33]
 
-init_prototypes = ordered_prototypes[:NUM_PROTOTYPES]
+init_prototypes = random.sample(ordered_prototypes, NUM_PROTOTYPES)
 
 init_prototypes = torch.tensor(init_prototypes, dtype=torch.float32)
 
@@ -449,9 +454,9 @@ if not os.path.exists('results/'):
     os.makedirs('results/')
 
 if args.new_proto_init:
-    results_file = f'results/p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_results_newinit.txt'
+    results_file = f'results/{date}_{name_file}_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_results_newinit.txt'
 else:
-    results_file = f'results/p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_results.txt'
+    results_file = f'results/{date}_{name_file}_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_results.txt'
 
 print(f"NUM_PROTOTYPES: {NUM_PROTOTYPES}")
 print(f"NUM_SLOTS: {NUM_SLOTS_PER_CLASS}")
@@ -467,20 +472,24 @@ data_accuracy = list()
 
 for iter in range(NUM_ITERATIONS):
     
-    MODEL_DIR = f'weights/model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/'
+    MODEL_DIR = f'weights/{date}_{name_file}_model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/'
     if not os.path.exists(MODEL_DIR):
         os.makedirs(MODEL_DIR)
     
-    MODEL_DIR_ITER = f'weights/model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}.pth'
+    MODEL_DIR_ITER = f'weights/{date}_{name_file}_model_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}.pth'
     
-    prototype_path = f'prototypes/p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}/'
+    if args.new_proto_init:
+        prototype_path = f'prototypes/{date}_{name_file}_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}_newinit/iter_{iter}/'
+    else:
+        prototype_path = f'prototypes/{date}_{name_file}_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/iter_{iter}/'    
+    
     if not os.path.exists(prototype_path):
         os.makedirs(prototype_path)
     
     with open(results_file, 'a') as f:
         f.write(f"ITERATION {iter}: \n")
         
-    writer = SummaryWriter(f"runs/myprotonet_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/Iteration_{iter}")
+    writer = SummaryWriter(f"runs/{date}_{name_file}_p{NUM_PROTOTYPES}_s{NUM_SLOTS_PER_CLASS}/Iteration_{iter}")
     
     environment = gym.make(ENVIRONMENT) # , render_mode='human')  # Get env
     environment.seed(0)
