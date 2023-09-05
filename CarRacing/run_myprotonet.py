@@ -36,7 +36,7 @@ args = parser.parse_args()
 NUM_PROTOTYPES = args.n_proto
 NUM_SLOTS_PER_CLASS = args.n_slots
 
-NUM_ITERATIONS = 5
+NUM_ITERATIONS = 15
 NUM_EPOCHS = 100
 NUM_CLASSES = 3
 
