@@ -26,13 +26,16 @@ python run_pwnet_star.py
 python run_pwnet_star_star.py
 ```
 
-- For the proposed approach Shared-PW-Net you have to specify in addition the number of prototypes that the network has to learn, the number of slots per class and if you want to apply the novel initialization technique:
+- For the proposed approach - Shared-PW-Net - you have to specify:
+      - the number of prototypes that the network has to learn
+      - the number of slots per class
+      - if you want to apply the novel initialization technique
 ```
 python run_sharedpwnet.py 6 2 new_proto_init
 ```
 If you don't specify nothing, a default value for number of prototype and slots is set, and the novel initialization technique is NOT applied.
 
-- NOTES:
+NOTES:
 
 - At the end of the training the following directories will be created:
     - weights/: where the best models' parameters (among all epochs) are saved for every iteration 
