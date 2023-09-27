@@ -1,4 +1,4 @@
-# Understanding Deep RL agent decisions: a novel interpretable approach with trainable prototypes
+# Understanding Deep RL agent decisions: a novel interpretable approach with trainable prototypes (called Shared-PW-Net)
 
 
 ## To reproduce the CODE:
