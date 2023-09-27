@@ -2,7 +2,7 @@
 
 
 ## To reproduce the CODE:
-### Environents: Car Racing, Atari Pong, Bipedal Walker, Lunar Lander
+### Environments: Car Racing, Atari Pong, Bipedal Walker, Lunar Lander
 
 - First place inside the environment directory (CarRacing/AtariPong/BipedalWalker/LunarLander) on which you want to conduct experiments (ex. CarRacing). 
 ```
