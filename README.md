@@ -27,9 +27,9 @@ python run_pwnet_star_star.py
 ```
 
 - For the proposed approach - Shared-PW-Net - you have to specify:
-    - the number of prototypes that the network has to learn
-    - the number of slots per class
-    - if you want to apply the novel initialization technique
+1. the number of prototypes that the network has to learn
+2. the number of slots per class
+3. if you want to apply the novel prototype initialization technique
 ```
 python run_sharedpwnet.py 6 2 new_proto_init
 ```
